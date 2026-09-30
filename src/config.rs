@@ -54,7 +54,45 @@ fn yes() -> bool {
     true
 }
 
+/// Loopback, RFC1918/ULA addresses and local-only naming suffixes. Plaintext to
+/// these stays on the machine or inside a private network.
+fn host_is_local_or_private(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".internal")
+        || host.ends_with(".home.arpa")
+    {
+        return true;
+    }
+
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            let o = ip.octets();
+            // RFC6598 shared address space, 100.64.0.0/10, is what Tailscale and
+            // other private overlays hand out; std does not count it as private.
+            let cgnat = o[0] == 100 && (64..128).contains(&o[1]);
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || cgnat
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            let s = ip.segments();
+            // fc00::/7 unique-local and fe80::/10 link-local, spelled out because
+            // the std predicates for them are not stable.
+            ip.is_loopback() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80
+        }
+        Err(_) => false,
+    }
+}
+
 impl NodeConfig {
+    /// True when the gateway would reach this node over plaintext HTTP across a
+    /// network it does not control. Bearer tokens travel on this hop.
+    pub fn is_plaintext_public(&self) -> bool {
+        self.url.scheme() == "http" && !self.url.host_str().is_some_and(host_is_local_or_private)
+    }
+
     pub fn effective_public_host(&self) -> String {
         self.public_host
             .clone()
@@ -521,6 +559,7 @@ impl Config {
         config.apply_env()?;
         config.normalize();
         config.validate()?;
+        config.warn_on_plaintext_nodes();
         Ok(config)
     }
 
@@ -873,6 +912,20 @@ impl Config {
         Ok(())
     }
 
+    /// PDS nodes reached across the public internet must be dialled over HTTPS:
+    /// the gateway forwards the client's `Authorization` header on this hop.
+    fn warn_on_plaintext_nodes(&self) {
+        for node in self.nodes.iter().filter(|n| n.is_plaintext_public()) {
+            tracing::warn!(
+                node = %node.name,
+                url = %node.url,
+                "node is dialled over plaintext http across a public network; \
+                 bearer tokens will be sent in the clear. Use https:// unless a \
+                 local proxy terminates TLS."
+            );
+        }
+    }
+
     pub fn node(&self, name: &str) -> Option<&NodeConfig> {
         self.nodes.iter().find(|n| n.name == name)
     }
@@ -912,7 +965,11 @@ mod tests {
             },
             nodes: vec![
                 node("primary", "http://127.0.0.1:2584", "rocksky.social"),
-                node("radxa", "http://radxa.lan:2583", "radxa.rocksky.social"),
+                node(
+                    "radxa",
+                    "https://radxa.rocksky.social",
+                    "radxa.rocksky.social",
+                ),
             ],
             ..Config::default()
         }
@@ -968,7 +1025,7 @@ mod tests {
     fn parses_the_compact_node_spec() {
         let nodes = parse_nodes_env(
             "primary|http://127.0.0.1:2584|rocksky.social, \
-             radxa|http://radxa.lan:2583|radxa.rocksky.social|3|false|did:web:radxa.rocksky.social",
+             radxa|https://radxa.rocksky.social|radxa.rocksky.social|3|false|did:web:radxa.rocksky.social",
         )
         .unwrap();
 
@@ -1021,7 +1078,7 @@ public_host = "rocksky.social"
 
 [[nodes]]
 name = "radxa"
-url = "http://radxa.lan:2583"
+url = "https://radxa.rocksky.social"
 public_host = "radxa.rocksky.social"
 weight = 2
 "#;
@@ -1039,6 +1096,34 @@ weight = 2
         assert_eq!(config.nodes[1].weight, 2);
         // Untouched sections keep their defaults.
         assert_eq!(config.health.failure_threshold, 3);
+    }
+
+    #[test]
+    fn flags_plaintext_only_to_public_hosts() {
+        let plaintext = |url: &str| node("n", url, "n.rocksky.social").is_plaintext_public();
+
+        // Across the public internet, the Authorization header would be in clear.
+        assert!(plaintext("http://radxa.rocksky.social"));
+        assert!(plaintext("http://203.0.113.10:2583"));
+
+        // The same machine, or a private network, is not a public hop.
+        assert!(!plaintext("http://127.0.0.1:2584"));
+        assert!(!plaintext("http://localhost:2584"));
+        assert!(!plaintext("http://[::1]:2584"));
+        assert!(!plaintext("http://10.0.0.5:2583"));
+        assert!(!plaintext("http://192.168.1.20:2583"));
+        assert!(!plaintext("http://172.16.4.4:2583"));
+        assert!(!plaintext("http://radxa.internal:2583"));
+        // A private overlay such as Tailscale, on RFC6598 shared space.
+        assert!(!plaintext("http://100.64.1.5:2583"));
+        assert!(!plaintext("http://100.127.255.254:2583"));
+        // Still public either side of that range.
+        assert!(plaintext("http://100.63.0.1:2583"));
+        assert!(plaintext("http://100.128.0.1:2583"));
+
+        // HTTPS is never flagged, wherever it points.
+        assert!(!plaintext("https://radxa.rocksky.social"));
+        assert!(!plaintext("https://127.0.0.1:2584"));
     }
 
     #[test]

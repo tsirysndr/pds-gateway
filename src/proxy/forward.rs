@@ -246,7 +246,7 @@ mod tests {
     fn node() -> NodeConfig {
         NodeConfig {
             name: "radxa".into(),
-            url: Url::parse("http://radxa.lan:2583").unwrap(),
+            url: Url::parse("https://radxa.rocksky.social").unwrap(),
             public_host: Some("radxa.rocksky.social".into()),
             did: None,
             weight: 1,
@@ -259,7 +259,7 @@ mod tests {
     fn builds_xrpc_urls_with_and_without_a_query() {
         assert_eq!(
             build_url(&node(), "com.atproto.repo.getRecord", ""),
-            "http://radxa.lan:2583/xrpc/com.atproto.repo.getRecord"
+            "https://radxa.rocksky.social/xrpc/com.atproto.repo.getRecord"
         );
         assert_eq!(
             build_url(
@@ -267,17 +267,17 @@ mod tests {
                 "com.atproto.repo.getRecord",
                 "repo=did:plc:a&rkey=b"
             ),
-            "http://radxa.lan:2583/xrpc/com.atproto.repo.getRecord?repo=did:plc:a&rkey=b"
+            "https://radxa.rocksky.social/xrpc/com.atproto.repo.getRecord?repo=did:plc:a&rkey=b"
         );
     }
 
     #[test]
     fn a_trailing_slash_does_not_double_up() {
         let mut n = node();
-        n.url = Url::parse("http://radxa.lan:2583/").unwrap();
+        n.url = Url::parse("https://radxa.rocksky.social/").unwrap();
         assert_eq!(
             build_url(&n, "_health", ""),
-            "http://radxa.lan:2583/xrpc/_health"
+            "https://radxa.rocksky.social/xrpc/_health"
         );
     }
 

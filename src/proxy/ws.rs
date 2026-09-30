@@ -106,11 +106,11 @@ mod tests {
     fn maps_http_schemes_onto_websocket_schemes() {
         assert_eq!(
             upstream_url(
-                &node("http://radxa.lan:2583"),
+                &node("http://radxa.rocksky.social"),
                 "com.atproto.sync.subscribeRepos",
                 ""
             ),
-            "ws://radxa.lan:2583/xrpc/com.atproto.sync.subscribeRepos"
+            "ws://radxa.rocksky.social/xrpc/com.atproto.sync.subscribeRepos"
         );
         assert_eq!(
             upstream_url(
