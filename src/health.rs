@@ -108,6 +108,8 @@ impl Fleet {
             .http
             .get(&url)
             .timeout(self.config.health.timeout.get())
+            .header("host", node.effective_public_host())
+            .header("x-forwarded-proto", self.config.server.public_url.scheme())
             .send()
             .await
             .map_err(|e| e.to_string())?;

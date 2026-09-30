@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use parking_lot::Mutex;
@@ -30,6 +30,8 @@ pub struct NodeInner {
     pub accounts: Vec<Hosted>,
     pub created: Vec<Value>,
     pub offline: bool,
+    /// (path, host, x-forwarded-proto) for every request the node received.
+    pub seen: Vec<(String, Option<String>, Option<String>)>,
 }
 
 #[derive(Clone)]
@@ -48,6 +50,10 @@ impl StubNode {
 
     pub fn created(&self) -> Vec<Value> {
         self.inner.lock().created.clone()
+    }
+
+    pub fn seen(&self) -> Vec<(String, Option<String>, Option<String>)> {
+        self.inner.lock().seen.clone()
     }
 
     pub fn set_offline(&self, offline: bool) {
@@ -125,6 +131,20 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
     }
 }
 
+fn record(state: &StubState, headers: &HeaderMap, path: &str) {
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+    };
+    state.inner.lock().seen.push((
+        path.to_owned(),
+        header("host"),
+        header("x-forwarded-proto"),
+    ));
+}
+
 fn offline(state: &StubState) -> Option<Response> {
     state
         .inner
@@ -170,7 +190,12 @@ async fn resolve_handle(
     }
 }
 
-async fn create_account(State(state): State<StubState>, Json(body): Json<Value>) -> Response {
+async fn create_account(
+    State(state): State<StubState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    record(&state, &headers, "/xrpc/com.atproto.server.createAccount");
     if let Some(down) = offline(&state) {
         return down;
     }
@@ -239,7 +264,12 @@ pub fn stub_did(handle: &str) -> String {
     format!("did:plc:{id}")
 }
 
-async fn create_session(State(state): State<StubState>, Json(body): Json<Value>) -> Response {
+async fn create_session(
+    State(state): State<StubState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    record(&state, &headers, "/xrpc/com.atproto.server.createSession");
     if let Some(down) = offline(&state) {
         return down;
     }
@@ -279,7 +309,8 @@ async fn create_session(State(state): State<StubState>, Json(body): Json<Value>)
     }
 }
 
-async fn get_record(State(state): State<StubState>) -> Response {
+async fn get_record(State(state): State<StubState>, headers: HeaderMap) -> Response {
+    record(&state, &headers, "/xrpc/com.atproto.repo.getRecord");
     if let Some(down) = offline(&state) {
         return down;
     }
@@ -293,7 +324,8 @@ async fn get_session(State(state): State<StubState>) -> Response {
     Json(json!({"servedBy": state.name})).into_response()
 }
 
-async fn describe_server(State(state): State<StubState>) -> Response {
+async fn describe_server(State(state): State<StubState>, headers: HeaderMap) -> Response {
+    record(&state, &headers, "/xrpc/com.atproto.server.describeServer");
     if let Some(down) = offline(&state) {
         return down;
     }
@@ -307,7 +339,8 @@ async fn describe_server(State(state): State<StubState>) -> Response {
     .into_response()
 }
 
-async fn pds_home(State(state): State<StubState>) -> Response {
+async fn pds_home(State(state): State<StubState>, headers: HeaderMap) -> Response {
+    record(&state, &headers, "/");
     (
         [("content-type", "text/html")],
         format!("<h1>{} account page</h1>", state.name),
@@ -345,7 +378,12 @@ struct PageQuery {
     limit: Option<usize>,
 }
 
-async fn list_repos(State(state): State<StubState>, Query(page): Query<PageQuery>) -> Response {
+async fn list_repos(
+    State(state): State<StubState>,
+    headers: HeaderMap,
+    Query(page): Query<PageQuery>,
+) -> Response {
+    record(&state, &headers, "/xrpc/com.atproto.sync.listRepos");
     if let Some(down) = offline(&state) {
         return down;
     }
@@ -400,6 +438,12 @@ pub async fn harness(nodes: Vec<StubNode>, tweak: impl FnOnce(&mut Config)) -> H
         .collect();
 
     let mut config = Config {
+        server: pds_gateway::config::ServerConfig {
+            // Production is HTTPS; the forwarded origin headers derive from this.
+            public_url: url::Url::parse("https://rocksky.social").unwrap(),
+            did: Some("did:web:rocksky.social".into()),
+            ..Default::default()
+        },
         gateway: GatewayConfig {
             handle_domains: vec!["rocksky.social".into()],
             default_node: Some(nodes[0].name.clone()),

@@ -816,3 +816,60 @@ async fn a_failing_node_keeps_its_cursor_for_the_next_page() {
         "a node that failed must keep its cursor so its records are retried"
     );
 }
+
+
+#[tokio::test]
+async fn every_forwarded_request_carries_its_origin() {
+    let h = fleet().await;
+
+    // A PDS reached over loopback derives its origin from these headers. Without
+    // them it answers 301 to its public HTTPS origin instead of doing the work,
+    // so every path that forwards must set them — not just the streaming one.
+    let _ = h
+        .get("/xrpc/com.atproto.repo.getRecord?repo=alice.rocksky.social&collection=c&rkey=1")
+        .await;
+    let _ = h.get("/xrpc/com.atproto.server.describeServer").await;
+    let _ = h.get("/xrpc/com.atproto.sync.listRepos").await;
+    let _ = h
+        .post(
+            "/xrpc/com.atproto.server.createSession",
+            json!({"identifier": "alice@example.com", "password": "correct-horse"}),
+        )
+        .await;
+    let _ = h
+        .post(
+            "/xrpc/com.atproto.server.createAccount",
+            json!({"handle": "origin.rocksky.social", "email": "o@e.com", "password": "correct-horse"}),
+        )
+        .await;
+    let _ = h.get("/").await;
+
+    let mut paths = std::collections::HashSet::new();
+    for node in h.nodes.values() {
+        for (path, host, proto) in node.seen() {
+            assert_eq!(
+                proto.as_deref(),
+                Some("https"),
+                "{path} reached the node without x-forwarded-proto"
+            );
+            // Each node is addressed by its own public host.
+            assert!(
+                host.as_deref().is_some_and(|h| h.ends_with("rocksky.social")),
+                "{path} reached the node with host {host:?}"
+            );
+            paths.insert(path);
+        }
+    }
+
+    // Each of these travels a different code path inside the gateway: streaming
+    // forward, buffered forward, fan-out, broadcast and passthrough.
+    for expected in [
+        "/xrpc/com.atproto.repo.getRecord",
+        "/xrpc/com.atproto.server.describeServer",
+        "/xrpc/com.atproto.sync.listRepos",
+        "/xrpc/com.atproto.server.createSession",
+        "/",
+    ] {
+        assert!(paths.contains(expected), "{expected} was never forwarded; saw {paths:?}");
+    }
+}

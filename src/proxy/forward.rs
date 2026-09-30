@@ -62,6 +62,30 @@ impl Forwarder {
             .ok_or_else(|| GatewayError::Internal(format!("unknown node `{name}`")))
     }
 
+    /// Applies the hop headers every forwarded request needs.
+    fn prepare(
+        &self,
+        mut request: reqwest::RequestBuilder,
+        node: &NodeConfig,
+        headers: &HeaderMap,
+        client_ip: Option<std::net::IpAddr>,
+    ) -> reqwest::RequestBuilder {
+        for (name, value) in forwardable(headers) {
+            request = request.header(name, value);
+        }
+        request = request.header("host", node.effective_public_host());
+        if let Some(ip) = client_ip {
+            request = request.header("x-forwarded-for", ip.to_string());
+        }
+        // A PDS reached over loopback derives its origin from these; omitting
+        // them makes it redirect to its public HTTPS origin instead of answering.
+        request = request.header("x-forwarded-proto", self.config.server.public_url.scheme());
+        if let Some(host) = self.config.server.public_url.host_str() {
+            request = request.header("x-forwarded-host", host);
+        }
+        request
+    }
+
     fn timeout_for(&self, nsid: &str) -> Duration {
         if lexicon::is_streaming(nsid) {
             self.config.upstream.transfer_timeout.get()
@@ -121,19 +145,8 @@ impl Forwarder {
     ) -> Result<Response> {
         let node = self.node(node_name)?;
 
-        let mut request = self.http.request(method.clone(), url).timeout(timeout);
-
-        for (name, value) in forwardable(headers) {
-            request = request.header(name, value);
-        }
-        request = request.header("host", node.effective_public_host());
-        if let Some(ip) = client_ip {
-            request = request.header("x-forwarded-for", ip.to_string());
-        }
-        request = request.header("x-forwarded-proto", self.config.server.public_url.scheme());
-        if let Some(host) = self.config.server.public_url.host_str() {
-            request = request.header("x-forwarded-host", host);
-        }
+        let request = self.http.request(method.clone(), url).timeout(timeout);
+        let mut request = self.prepare(request, node, headers, client_ip);
 
         request = match body {
             RequestBody::Empty => request,
@@ -185,15 +198,11 @@ impl Forwarder {
         let node = self.node(node_name)?;
         let url = build_url(node, nsid, query);
 
-        let mut request = self
+        let request = self
             .http
             .request(method, &url)
             .timeout(self.timeout_for(nsid));
-
-        for (name, value) in forwardable(headers) {
-            request = request.header(name, value);
-        }
-        request = request.header("host", node.effective_public_host());
+        let mut request = self.prepare(request, node, headers, None);
 
         if let Some(bytes) = body {
             request = request.body(bytes);
