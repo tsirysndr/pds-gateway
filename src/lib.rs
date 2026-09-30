@@ -4,6 +4,7 @@ pub mod health;
 pub mod identity;
 pub mod metrics;
 pub mod registry;
+pub mod routing;
 
 pub use config::Config;
 pub use error::{GatewayError, Result};
