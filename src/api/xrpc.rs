@@ -106,7 +106,7 @@ async fn local(
         .into_response()),
 
         "com.atproto.server.describeServer" => {
-            Ok(crate::api::describe::describe_server(state).into_response())
+            Ok(crate::api::describe::describe_server(state).await)
         }
 
         "com.atproto.identity.resolveHandle" => {

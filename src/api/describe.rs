@@ -104,18 +104,53 @@ pub async fn metrics(State(state): State<Arc<AppState>>) -> Response {
 }
 
 /// `com.atproto.server.describeServer` for the fleet as one PDS.
-pub fn describe_server(state: &Arc<AppState>) -> Json<Value> {
-    Json(json!({
-        "did": state.config.server.did,
-        "availableUserDomains": state
-            .config
-            .gateway
-            .handle_domains
-            .iter()
-            .map(|d| format!(".{d}"))
-            .collect::<Vec<_>>(),
-        "inviteCodeRequired": true,
-        "links": {},
-        "contact": {},
-    }))
+///
+/// Taken from the default node and then corrected, rather than invented here:
+/// fields like `inviteCodeRequired`, `blobUploadLimit` and `contact` are the
+/// node's to state, and guessing them would misinform clients. Only the identity
+/// and the handle namespace are the gateway's to override.
+pub async fn describe_server(state: &Arc<AppState>) -> Response {
+    let domains: Vec<String> = state
+        .config
+        .gateway
+        .handle_domains
+        .iter()
+        .map(|d| format!(".{d}"))
+        .collect();
+
+    let node = state.router.default_node();
+    let upstream = state
+        .forwarder
+        .forward_buffered(
+            &node,
+            axum::http::Method::GET,
+            "com.atproto.server.describeServer",
+            "",
+            &axum::http::HeaderMap::new(),
+            None,
+        )
+        .await;
+
+    let mut body = match upstream {
+        Ok(response) if response.status.is_success() => match response.json::<Value>() {
+            Some(Value::Object(object)) => object,
+            _ => serde_json::Map::new(),
+        },
+        Ok(response) => {
+            tracing::warn!(node = %node, status = %response.status, "describeServer upstream failed");
+            serde_json::Map::new()
+        }
+        Err(e) => {
+            tracing::warn!(node = %node, error = %e, "describeServer upstream failed");
+            serde_json::Map::new()
+        }
+    };
+
+    if let Some(did) = &state.config.server.did {
+        body.insert("did".to_owned(), json!(did));
+    }
+    body.insert("availableUserDomains".to_owned(), json!(domains));
+    body.entry("inviteCodeRequired").or_insert(json!(false));
+
+    Json(Value::Object(body)).into_response()
 }

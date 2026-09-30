@@ -438,8 +438,12 @@ async fn describe_server_advertises_the_handle_domains() {
     assert_eq!(
         body["availableUserDomains"],
         json!([".rocksky.social"]),
-        "clients read this to offer handles"
+        "the gateway owns the namespace, so it overrides the node's answer"
     );
+    // The node's own facts must survive rather than being invented here.
+    assert_eq!(body["inviteCodeRequired"], json!(false));
+    assert_eq!(body["blobUploadLimit"], json!(5242880));
+    assert_eq!(body["contact"]["email"], json!("admin@rocksky.social"));
 }
 
 #[tokio::test]

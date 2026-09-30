@@ -97,6 +97,10 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
         )
         .route("/xrpc/com.atproto.repo.getRecord", get(get_record))
         .route("/xrpc/com.atproto.sync.listRepos", get(list_repos))
+        .route(
+            "/xrpc/com.atproto.server.describeServer",
+            get(describe_server),
+        )
         .route("/xrpc/com.atproto.server.getSession", get(get_session))
         // Routes a real PDS serves outside /xrpc, which the gateway must pass
         // through rather than shadow.
@@ -287,6 +291,20 @@ async fn get_session(State(state): State<StubState>) -> Response {
         return down;
     }
     Json(json!({"servedBy": state.name})).into_response()
+}
+
+async fn describe_server(State(state): State<StubState>) -> Response {
+    if let Some(down) = offline(&state) {
+        return down;
+    }
+    Json(json!({
+        "did": format!("did:web:{}.rocksky.social", state.name),
+        "availableUserDomains": [".example.invalid"],
+        "inviteCodeRequired": false,
+        "blobUploadLimit": 5242880,
+        "contact": {"email": "admin@rocksky.social"},
+    }))
+    .into_response()
 }
 
 async fn pds_home(State(state): State<StubState>) -> Response {
