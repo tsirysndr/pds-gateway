@@ -98,6 +98,13 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
         .route("/xrpc/com.atproto.repo.getRecord", get(get_record))
         .route("/xrpc/com.atproto.sync.listRepos", get(list_repos))
         .route("/xrpc/com.atproto.server.getSession", get(get_session))
+        // Routes a real PDS serves outside /xrpc, which the gateway must pass
+        // through rather than shadow.
+        .route("/", get(pds_home))
+        .route("/health", get(pds_health))
+        .route("/metrics", get(pds_metrics))
+        .route("/oauth/par", post(pds_par))
+        .route("/.well-known/did.json", get(pds_did_json))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -282,19 +289,73 @@ async fn get_session(State(state): State<StubState>) -> Response {
     Json(json!({"servedBy": state.name})).into_response()
 }
 
-async fn list_repos(State(state): State<StubState>) -> Response {
+async fn pds_home(State(state): State<StubState>) -> Response {
+    (
+        [("content-type", "text/html")],
+        format!("<h1>{} account page</h1>", state.name),
+    )
+        .into_response()
+}
+
+async fn pds_health(State(state): State<StubState>) -> Response {
+    Json(json!({"pds": state.name, "status": "ok"})).into_response()
+}
+
+async fn pds_metrics(State(state): State<StubState>) -> Response {
+    (
+        [("content-type", "text/plain")],
+        format!("pds_up{{node=\"{}\"}} 1\n", state.name),
+    )
+        .into_response()
+}
+
+async fn pds_par(State(state): State<StubState>) -> Response {
+    (
+        StatusCode::CREATED,
+        Json(json!({"request_uri": format!("urn:{}:abc", state.name)})),
+    )
+        .into_response()
+}
+
+async fn pds_did_json(State(state): State<StubState>) -> Response {
+    Json(json!({"id": format!("did:web:{}.rocksky.social", state.name)})).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct PageQuery {
+    cursor: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn list_repos(State(state): State<StubState>, Query(page): Query<PageQuery>) -> Response {
     if let Some(down) = offline(&state) {
         return down;
     }
-    let repos: Vec<Value> = state
-        .inner
-        .lock()
-        .accounts
+
+    let accounts = state.inner.lock().accounts.clone();
+    // Cursor is an offset into this node's own list, in its own cursor space.
+    let offset: usize = page
+        .cursor
+        .as_deref()
+        .and_then(|c| c.strip_prefix(&format!("{}-", state.name)))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
+    let limit = page.limit.unwrap_or(50).max(1);
+
+    let repos: Vec<Value> = accounts
         .iter()
+        .skip(offset)
+        .take(limit)
         .map(|a| json!({"did": a.did, "head": "bafy", "node": state.name}))
         .collect();
 
-    Json(json!({"repos": repos, "cursor": format!("{}-cursor", state.name)})).into_response()
+    let consumed = offset + repos.len();
+    let mut body = json!({"repos": repos});
+    // Only hand back a cursor while there is more to read.
+    if consumed < accounts.len() {
+        body["cursor"] = json!(format!("{}-{}", state.name, consumed));
+    }
+    Json(body).into_response()
 }
 
 pub struct Harness {

@@ -446,11 +446,11 @@ async fn describe_server_advertises_the_handle_domains() {
 async fn reports_health_and_readiness() {
     let h = fleet().await;
 
-    let (status, _, body) = h.get("/health").await;
+    let (status, _, body) = h.get("/_gateway/health").await;
     assert_eq!(status, 200);
     assert_eq!(body["nodesTotal"], json!(2));
 
-    let (status, _, body) = h.get("/health/ready").await;
+    let (status, _, body) = h.get("/_gateway/health/ready").await;
     assert_eq!(status, 200);
     assert_eq!(body["ready"], json!(true));
 
@@ -463,17 +463,20 @@ async fn reports_health_and_readiness() {
 async fn the_admin_api_requires_its_token() {
     let h = fleet().await;
 
-    let (status, _, _) = h.get_with("/admin/nodes", &[]).await;
+    let (status, _, _) = h.get_with("/_gateway/admin/nodes", &[]).await;
     assert_eq!(status, 401);
 
     let (status, _, _) = h
-        .get_with("/admin/nodes", &[("authorization", "Bearer wrong")])
+        .get_with(
+            "/_gateway/admin/nodes",
+            &[("authorization", "Bearer wrong")],
+        )
         .await;
     assert_eq!(status, 401);
 
     let (status, _, body) = h
         .get_with(
-            "/admin/nodes",
+            "/_gateway/admin/nodes",
             &[("authorization", "Bearer test-admin-token")],
         )
         .await;
@@ -488,7 +491,7 @@ async fn admin_resolve_explains_a_routing_decision() {
 
     let (status, _, body) = h
         .get_with(
-            "/admin/resolve?subject=bob.rocksky.social&live=true",
+            "/_gateway/admin/resolve?subject=bob.rocksky.social&live=true",
             &[("authorization", "Bearer test-admin-token")],
         )
         .await;
@@ -506,7 +509,7 @@ async fn metrics_expose_the_fleet() {
     let h = fleet().await;
     let _ = h.get("/xrpc/com.atproto.sync.listRepos").await;
 
-    let (status, _, body) = h.get_with("/metrics", &[]).await;
+    let (status, _, body) = h.get_with("/_gateway/metrics", &[]).await;
     assert_eq!(status, 200);
 
     let text = String::from_utf8_lossy(&body);
@@ -636,4 +639,176 @@ async fn the_firehose_can_be_turned_off() {
         .await;
 
     assert_eq!(status, 501);
+}
+
+#[tokio::test]
+async fn passes_through_the_routes_the_pds_owns() {
+    let h = fleet().await;
+
+    // The account frontend, health and metrics must not be shadowed: the gateway
+    // fronts a hostname the PDS already serves.
+    let (status, headers, body) = h.get_with("/", &[]).await;
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("primary account page"));
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
+
+    let (status, _, body) = h.get("/health").await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["pds"],
+        json!("primary"),
+        "this must be the PDS's own health"
+    );
+
+    let (status, _, body) = h.get_with("/metrics", &[]).await;
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("pds_up"));
+
+    let (status, _, body) = h.get("/.well-known/did.json").await;
+    assert_eq!(status, 200);
+    assert_eq!(body["id"], json!("did:web:primary.rocksky.social"));
+}
+
+#[tokio::test]
+async fn passes_through_a_post_with_its_body() {
+    let h = fleet().await;
+
+    let (status, _, body) = h
+        .post(
+            "/oauth/par",
+            json!({"client_id": "https://app.example/metadata.json"}),
+        )
+        .await;
+
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["request_uri"], json!("urn:primary:abc"));
+}
+
+#[tokio::test]
+async fn gateway_status_lives_under_its_own_prefix() {
+    let h = fleet().await;
+
+    let (status, _, body) = h.get("/_gateway").await;
+    assert_eq!(status, 200);
+    assert_eq!(body["service"], json!("pds-gateway"));
+
+    let (status, _, body) = h.get("/_gateway/health").await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["nodesTotal"],
+        json!(2),
+        "gateway health, not the PDS's"
+    );
+}
+
+#[tokio::test]
+async fn a_token_sends_passthrough_to_the_accounts_own_node() {
+    let h = fleet().await;
+    let bob = stub_did("bob.rocksky.social");
+    h.state
+        .store
+        .upsert_account(&bob, "bob.rocksky.social", "radxa")
+        .await
+        .unwrap();
+
+    let auth = format!("Bearer {}", token(&bob, None));
+    let (status, headers, body) = h.get_with("/", &[("authorization", &auth)]).await;
+
+    assert_eq!(status, 200);
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("radxa"));
+    assert!(String::from_utf8_lossy(&body).contains("radxa account page"));
+}
+
+#[tokio::test]
+async fn merged_fanout_paginates_without_loss_or_repeats() {
+    let primary = start_node(
+        "primary",
+        (0..5)
+            .map(|i| hosted(&format!("p{i}.rocksky.social"), &format!("p{i}@e.com")))
+            .collect(),
+    )
+    .await;
+    let radxa = start_node(
+        "radxa",
+        (0..3)
+            .map(|i| hosted(&format!("r{i}.rocksky.social"), &format!("r{i}@e.com")))
+            .collect(),
+    )
+    .await;
+    let h = harness(vec![primary, radxa], |_| {}).await;
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    for round in 0..12 {
+        let uri = match &cursor {
+            Some(c) => format!("/xrpc/com.atproto.sync.listRepos?limit=4&cursor={c}"),
+            None => "/xrpc/com.atproto.sync.listRepos?limit=4".to_owned(),
+        };
+        let (status, _, body) = h.get(&uri).await;
+        assert_eq!(status, 200, "round {round}: {body}");
+
+        for repo in body["repos"].as_array().unwrap() {
+            seen.push(repo["did"].as_str().unwrap().to_owned());
+        }
+
+        cursor = body["cursor"].as_str().map(str::to_owned);
+        if cursor.is_none() {
+            break;
+        }
+    }
+
+    assert!(cursor.is_none(), "pagination should terminate");
+    assert_eq!(seen.len(), 8, "every repo exactly once: {seen:?}");
+
+    let unique: std::collections::HashSet<_> = seen.iter().collect();
+    assert_eq!(unique.len(), 8, "no repo may repeat across pages");
+}
+
+#[tokio::test]
+async fn an_exhausted_merged_cursor_ends_cleanly() {
+    let h = fleet().await;
+
+    let (status, _, body) = h.get("/xrpc/com.atproto.sync.listRepos?limit=50").await;
+    assert_eq!(status, 200);
+    // Both nodes fit in one page, so there is nothing more to page through.
+    assert!(body.get("cursor").is_none(), "{body}");
+}
+
+#[tokio::test]
+async fn a_failing_node_keeps_its_cursor_for_the_next_page() {
+    let primary = start_node(
+        "primary",
+        (0..4)
+            .map(|i| hosted(&format!("p{i}.rocksky.social"), &format!("p{i}@e.com")))
+            .collect(),
+    )
+    .await;
+    let radxa = start_node(
+        "radxa",
+        (0..4)
+            .map(|i| hosted(&format!("r{i}.rocksky.social"), &format!("r{i}@e.com")))
+            .collect(),
+    )
+    .await;
+    let h = harness(vec![primary, radxa], |_| {}).await;
+
+    let (_, _, first) = h.get("/xrpc/com.atproto.sync.listRepos?limit=2").await;
+    let cursor = first["cursor"].as_str().unwrap().to_owned();
+
+    // radxa goes down mid-pagination: its records must not be silently skipped.
+    h.nodes["radxa"].set_offline(true);
+    let (status, _, second) = h
+        .get(&format!(
+            "/xrpc/com.atproto.sync.listRepos?limit=2&cursor={cursor}"
+        ))
+        .await;
+    assert_eq!(status, 200, "{second}");
+
+    let next = second["cursor"].as_str().unwrap();
+    let decoded = pds_gateway::routing::MergedCursor::decode(next).unwrap();
+    assert!(
+        decoded.get("radxa").is_some(),
+        "a node that failed must keep its cursor so its records are retried"
+    );
 }

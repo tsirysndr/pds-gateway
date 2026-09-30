@@ -83,13 +83,45 @@ impl Forwarder {
         body: RequestBody,
         client_ip: Option<std::net::IpAddr>,
     ) -> Result<Response> {
-        let node = self.node(node_name)?;
-        let url = build_url(node, nsid, query);
+        let url = build_url(self.node(node_name)?, nsid, query);
+        let timeout = self.timeout_for(nsid);
+        self.send(node_name, method, &url, timeout, headers, body, client_ip)
+            .await
+    }
 
-        let mut request = self
-            .http
-            .request(method.clone(), &url)
-            .timeout(self.timeout_for(nsid));
+    /// Forwards a request the gateway does not own — OAuth, the account
+    /// frontend, static assets — verbatim to one node.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn forward_path(
+        &self,
+        node_name: &str,
+        method: Method,
+        path: &str,
+        query: &str,
+        headers: &HeaderMap,
+        body: RequestBody,
+        client_ip: Option<std::net::IpAddr>,
+    ) -> Result<Response> {
+        let url = build_path_url(self.node(node_name)?, path, query);
+        let timeout = self.config.upstream.request_timeout.get();
+        self.send(node_name, method, &url, timeout, headers, body, client_ip)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send(
+        &self,
+        node_name: &str,
+        method: Method,
+        url: &str,
+        timeout: Duration,
+        headers: &HeaderMap,
+        body: RequestBody,
+        client_ip: Option<std::net::IpAddr>,
+    ) -> Result<Response> {
+        let node = self.node(node_name)?;
+
+        let mut request = self.http.request(method.clone(), url).timeout(timeout);
 
         for (name, value) in forwardable(headers) {
             request = request.header(name, value);
@@ -221,11 +253,20 @@ impl Forwarder {
 }
 
 fn build_url(node: &NodeConfig, nsid: &str, query: &str) -> String {
+    build_path_url(node, &format!("/xrpc/{nsid}"), query)
+}
+
+fn build_path_url(node: &NodeConfig, path: &str, query: &str) -> String {
     let base = node.url.as_str().trim_end_matches('/');
-    if query.is_empty() {
-        format!("{base}/xrpc/{nsid}")
+    let path = if path.starts_with('/') {
+        path.to_owned()
     } else {
-        format!("{base}/xrpc/{nsid}?{query}")
+        format!("/{path}")
+    };
+    if query.is_empty() {
+        format!("{base}{path}")
+    } else {
+        format!("{base}{path}?{query}")
     }
 }
 

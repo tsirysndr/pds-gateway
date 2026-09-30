@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod describe;
+pub mod passthrough;
 pub mod subscribe;
 pub mod wellknown;
 pub mod xrpc;
@@ -14,6 +15,11 @@ use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
 
+/// The gateway owns only what it must be authoritative for: XRPC, the handle
+/// document and the TLS ask. Everything else on the hostname — OAuth, the
+/// account frontend, `/metrics`, `did.json`, static assets — belongs to the PDS
+/// and is passed through untouched, so putting the gateway in front of an
+/// existing PDS does not take those routes away.
 pub fn router(state: Arc<AppState>) -> AxumRouter {
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -22,14 +28,7 @@ pub fn router(state: Arc<AppState>) -> AxumRouter {
         .max_age(Duration::from_secs(600));
 
     AxumRouter::new()
-        .route("/", get(describe::root))
-        .route("/health", get(describe::health))
-        .route("/health/ready", get(describe::ready))
-        .route("/metrics", get(describe::metrics))
-        // Delegate and identity endpoints. The nodes and the TLS issuer call
-        // these, so they must answer without a redirect.
         .route("/.well-known/atproto-did", get(wellknown::atproto_did))
-        .route("/.well-known/did.json", get(wellknown::did_json))
         .route("/tls-check", get(wellknown::tls_check))
         .route(
             "/xrpc/com.atproto.sync.subscribeRepos",
@@ -40,7 +39,14 @@ pub fn router(state: Arc<AppState>) -> AxumRouter {
             },
         )
         .route("/xrpc/{nsid}", any(xrpc::handle))
-        .nest("/admin", admin::router())
+        // Gateway status lives under its own prefix so it cannot shadow a route
+        // the PDS already serves.
+        .route("/_gateway", get(describe::root))
+        .route("/_gateway/health", get(describe::health))
+        .route("/_gateway/health/ready", get(describe::ready))
+        .route("/_gateway/metrics", get(describe::metrics))
+        .nest("/_gateway/admin", admin::router())
+        .fallback(any(passthrough::handle))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)

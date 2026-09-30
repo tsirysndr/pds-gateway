@@ -305,7 +305,9 @@ async fn release(state: &Arc<AppState>, handle: &Handle, owner: &str) {
     state.coord.unlock_handle(handle.as_str()).await;
 }
 
-/// Merges `repos` / `accounts` arrays from every node into one page.
+/// Merges array results from every node into one page, paginating correctly:
+/// each node gets its own slice of the cursor and its own share of the limit, so
+/// no record is dropped or repeated across pages.
 async fn fanout(
     state: &Arc<AppState>,
     nsid: &str,
@@ -314,25 +316,68 @@ async fn fanout(
     headers: &HeaderMap,
     _body: RequestBody,
 ) -> Result<Response> {
+    use crate::routing::MergedCursor;
+
+    let params = parse_query(query);
+    let incoming = params
+        .iter()
+        .find(|(k, _)| k == "cursor")
+        .and_then(|(_, v)| MergedCursor::decode(v));
+
+    // A cursor names the nodes that still have results; without one, ask
+    // everybody.
     let nodes: Vec<String> = state
         .config
         .nodes
         .iter()
         .map(|n| n.name.clone())
         .filter(|n| state.fleet.is_routable(n))
+        .filter(|n| incoming.as_ref().is_none_or(|c| c.get(n).is_some()))
         .collect();
 
     if nodes.is_empty() {
+        // An exhausted cursor is a normal end of pagination, not an error.
+        if incoming.is_some() {
+            return Ok(Json(json!({})).into_response());
+        }
         return Err(GatewayError::NoNodeAvailable("no node is up".to_owned()));
     }
 
-    let results = state
-        .forwarder
-        .fanout(&nodes, method.clone(), nsid, query, headers, None)
-        .await;
+    let limit = params
+        .iter()
+        .find(|(k, _)| k == "limit")
+        .and_then(|(_, v)| v.parse::<i64>().ok());
+    let per_node_limit = MergedCursor::split_limit(limit, nodes.len());
+
+    // Each node gets the same query with its own cursor and share of the limit.
+    let queries: Vec<String> = nodes
+        .iter()
+        .map(|node| {
+            let mut pairs: Vec<(String, String)> = params
+                .iter()
+                .filter(|(k, _)| k != "cursor" && k != "limit")
+                .cloned()
+                .collect();
+            if let Some(cursor) = incoming.as_ref().and_then(|c| c.get(node)) {
+                pairs.push(("cursor".to_owned(), cursor.to_owned()));
+            }
+            if let Some(limit) = per_node_limit {
+                pairs.push(("limit".to_owned(), limit.to_string()));
+            }
+            serde_urlencoded_pairs(&pairs)
+        })
+        .collect();
+
+    let calls = nodes.iter().zip(&queries).map(|(node, query)| {
+        state
+            .forwarder
+            .forward_buffered(node, method.clone(), nsid, query, headers, None)
+    });
+    let results = futures::future::join_all(calls).await;
 
     let mut merged = serde_json::Map::new();
     let mut arrays: std::collections::BTreeMap<String, Vec<Value>> = Default::default();
+    let mut next = MergedCursor::default();
     let mut ok = 0;
 
     for (node, result) in nodes.iter().zip(results) {
@@ -343,21 +388,33 @@ async fn fanout(
                     continue;
                 };
                 for (key, value) in object {
-                    match value {
-                        Value::Array(items) => arrays.entry(key).or_default().extend(items),
-                        // A per-node cursor cannot be merged into one cursor, so
-                        // it is dropped rather than returned as a lie.
-                        other if key != "cursor" => {
+                    match (key.as_str(), value) {
+                        // Only a node that returned a cursor has more to give.
+                        ("cursor", Value::String(cursor)) if !cursor.is_empty() => {
+                            next.set(node, cursor);
+                        }
+                        ("cursor", _) => {}
+                        (_, Value::Array(items)) => arrays.entry(key).or_default().extend(items),
+                        (_, other) => {
                             merged.entry(key).or_insert(other);
                         }
-                        _ => {}
                     }
                 }
             }
             Ok(response) => {
-                tracing::debug!(node = %node, status = %response.status, "fanout member failed")
+                tracing::debug!(node = %node, status = %response.status, "fanout member failed");
+                // A node that errored is not exhausted; keep its cursor so the
+                // next page retries it instead of silently skipping its records.
+                if let Some(cursor) = incoming.as_ref().and_then(|c| c.get(node)) {
+                    next.set(node, cursor);
+                }
             }
-            Err(e) => tracing::debug!(node = %node, error = %e, "fanout member failed"),
+            Err(e) => {
+                tracing::debug!(node = %node, error = %e, "fanout member failed");
+                if let Some(cursor) = incoming.as_ref().and_then(|c| c.get(node)) {
+                    next.set(node, cursor);
+                }
+            }
         }
     }
 
@@ -370,8 +427,19 @@ async fn fanout(
     for (key, items) in arrays {
         merged.insert(key, Value::Array(items));
     }
+    if let Some(cursor) = next.encode() {
+        merged.insert("cursor".to_owned(), Value::String(cursor));
+    }
 
     Ok(Json(Value::Object(merged)).into_response())
+}
+
+fn serde_urlencoded_pairs(pairs: &[(String, String)]) -> String {
+    let mut out = url::form_urlencoded::Serializer::new(String::new());
+    for (k, v) in pairs {
+        out.append_pair(k, v);
+    }
+    out.finish()
 }
 
 /// Tries each node until one accepts. Used for login, where the identifier may
@@ -528,7 +596,7 @@ async fn read_limited(body: Body, limit: usize) -> Result<Bytes> {
 
 /// The caller's address, taken from `X-Forwarded-For` only when the reverse
 /// proxy in front of the gateway is trusted.
-fn client_ip(state: &Arc<AppState>, headers: &HeaderMap) -> Option<std::net::IpAddr> {
+pub fn client_ip(state: &Arc<AppState>, headers: &HeaderMap) -> Option<std::net::IpAddr> {
     if !state.config.server.trust_forwarded_headers {
         return None;
     }
