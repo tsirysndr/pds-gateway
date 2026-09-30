@@ -31,8 +31,11 @@ reserved_handles = ["admin", "api", "mod", "pds", "root", "support", "www"]
 # authoritative for their own accounts.
 enabled = true
 fan_out = true
-# Keep under the caller's budget: atoll allows 2s to connect, 3s to answer.
-ask_timeout = "1500ms"
+# The fan-out is parallel, so this bounds the slowest single node, not the sum.
+# It must stay under the caller's budget: atoll allows a delegate 2s to connect
+# and 3s to answer, and this runs on the TLS handshake path. Nodes on home
+# connections need more than a LAN would, so 2s rather than a few hundred ms.
+ask_timeout = "2s"
 cache_ttl = "5m"
 # Approve on-demand TLS for handles that actually exist.
 tls_check = true
@@ -50,7 +53,9 @@ well_known_resolution = true
 dns_nameservers = []
 
 [upstream]
-connect_timeout = "5s"
+# Nodes are reached across the public internet, so these allow for WAN latency
+# and for boards on domestic upload links.
+connect_timeout = "10s"
 request_timeout = "60s"
 # Blobs and CAR transfers.
 transfer_timeout = "10m"
@@ -60,7 +65,8 @@ max_buffered_body_bytes = 1048576
 
 [health]
 interval = "15s"
-timeout = "3s"
+# A probe across the internet to a small board, not a LAN round trip.
+timeout = "5s"
 failure_threshold = 3
 success_threshold = 2
 probe_path = "/xrpc/_health"
@@ -97,11 +103,17 @@ metrics = true
 
 # --- the fleet -------------------------------------------------------------
 # `url` is how the gateway reaches a node; `public_host` is what that node
-# publishes in DID documents. Keeping them separate is what lets the PDS that
-# shares this machine sit on loopback while still being "rocksky.social".
-
-# The real PDS on this same server, reachable only over loopback. The gateway
-# owns port 2583 publicly, so this PDS is bound to 2584 on 127.0.0.1.
+# publishes in DID documents.
+#
+# The nodes are on the public internet, each behind its own hostname and its own
+# TLS, so for them the two are the same host and `url` MUST be https:// — the
+# gateway forwards the client's Authorization header on this hop. The gateway
+# warns at startup about any plaintext http:// node that is not loopback or
+# RFC1918.
+#
+# The exception is the PDS sharing this machine: the gateway owns the public
+# hostname and port 2583, so that PDS binds to 127.0.0.1:2584 and is reached
+# over loopback while still publishing "rocksky.social".
 [[nodes]]
 name = "local"
 url = "http://127.0.0.1:2584"
@@ -112,7 +124,7 @@ accepts_signups = true
 
 [[nodes]]
 name = "radxa"
-url = "http://radxa.lan:2583"
+url = "https://radxa.rocksky.social"
 public_host = "radxa.rocksky.social"
 did = "did:web:radxa.rocksky.social"
 weight = 2
@@ -120,7 +132,7 @@ accepts_signups = true
 
 [[nodes]]
 name = "raspberrypi4"
-url = "http://raspberrypi4.lan:2583"
+url = "https://raspberrypi4.rocksky.social"
 public_host = "raspberrypi4.rocksky.social"
 did = "did:web:raspberrypi4.rocksky.social"
 weight = 1
@@ -128,7 +140,7 @@ accepts_signups = true
 
 [[nodes]]
 name = "orangepi-zero-3w"
-url = "http://orangepi-zero-3w.lan:2583"
+url = "https://orangepi-zero-3w.rocksky.social"
 public_host = "orangepi-zero-3w.rocksky.social"
 did = "did:web:orangepi-zero-3w.rocksky.social"
 weight = 1

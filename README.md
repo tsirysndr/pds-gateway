@@ -14,16 +14,17 @@ Put it behind `rocksky.social` and it will route to the nodes behind it:
    │ rocksky.social          │   owns the wildcard, answers handle
    │ pds-gateway :2583       │   resolution for the whole namespace
    └────────────┬────────────┘
-                │
-     ┌──────────┼───────────────┬────────────────────┐
-     ▼          ▼               ▼                    ▼
-  127.0.0.1   radxa.lan   raspberrypi4.lan   orangepi-zero-3w.lan
-    :2584       :2583           :2583               :2583
+                │  https, across the public internet
+     ┌──────────┴──────┬──────────────────┬─────────────────────┐
+     │ (loopback)      │                  │                     │
+     ▼                 ▼                  ▼                     ▼
+ 127.0.0.1:2584   radxa.          raspberrypi4.        orangepi-zero-3w.
+ published as     rocksky.social  rocksky.social       rocksky.social
+ rocksky.social
+ (same machine)
 
-  published as:
-  rocksky.      radxa.      raspberrypi4.     orangepi-zero-3w.
-  social        rocksky.    rocksky.social    rocksky.social
-  (same host)   social
+ Each node has its own public hostname and its own TLS. Only the PDS sharing
+ this machine is reached over loopback.
 ```
 
 Built on tokio and axum. Tested against the [atoll](../atoll),
@@ -41,6 +42,7 @@ which share the same `com.atproto.*` surface.
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Environment variables](#environment-variables)
+- [Nodes on the public internet](#nodes-on-the-public-internet)
 - [Running the PDS on the same machine](#running-the-pds-on-the-same-machine)
 - [Wiring the nodes to the gateway](#wiring-the-nodes-to-the-gateway)
 - [Redis](#redis)
@@ -211,7 +213,7 @@ GATEWAY_BIND=0.0.0.0:2583 \
 GATEWAY_PUBLIC_URL=https://rocksky.social \
 GATEWAY_HANDLE_DOMAINS=rocksky.social \
 GATEWAY_DEFAULT_NODE=local \
-GATEWAY_NODES='local|http://127.0.0.1:2584|rocksky.social,radxa|http://radxa.lan:2583|radxa.rocksky.social' \
+GATEWAY_NODES='local|http://127.0.0.1:2584|rocksky.social,radxa|https://radxa.rocksky.social' \
 ./target/release/pds-gateway
 ```
 
@@ -241,13 +243,17 @@ above possible:
 ```toml
 [[nodes]]
 name = "radxa"
-url = "http://radxa.lan:2583"          # how the gateway reaches it
+url = "https://radxa.rocksky.social"   # how the gateway reaches it
 public_host = "radxa.rocksky.social"   # what it publishes in DID documents
 did = "did:web:radxa.rocksky.social"   # lets the gateway route on a token's aud
 weight = 2
 accepts_signups = true
 max_accounts = 5000
 ```
+
+For a node on the public internet the two hosts are the same, and `url` must be
+`https://`. They differ only for a PDS the gateway reaches privately — see
+[Running the PDS on the same machine](#running-the-pds-on-the-same-machine).
 
 ## Environment variables
 
@@ -294,13 +300,67 @@ nodes separated by commas; only `name|url` is required:
 
 ```sh
 GATEWAY_NODES='local|http://127.0.0.1:2584|rocksky.social|1|true|did:web:rocksky.social,
-radxa|http://radxa.lan:2583|radxa.rocksky.social|2|true,
-orangepi-zero-3w|http://orangepi-zero-3w.lan:2583|orangepi-zero-3w.rocksky.social|1|false'
+radxa|https://radxa.rocksky.social||2|true,
+orangepi-zero-3w|https://orangepi-zero-3w.rocksky.social||1|false'
 ```
+
+`public_host` may be left empty for a public node, as above: it then defaults to
+the host in `url`, which is already correct.
 
 List-valued variables (`GATEWAY_HANDLE_DOMAINS`, `GATEWAY_RESERVED_HANDLES`,
 `GATEWAY_DNS_NAMESERVERS`) are comma-separated. An empty value is treated as
 unset, so `GATEWAY_FOO=` in a compose file does not override the file.
+
+## Nodes on the public internet
+
+The nodes are not on a private network. Each one has its own public hostname and
+its own TLS certificate, and the gateway dials them across the internet. That
+changes a few things worth being explicit about.
+
+**Use `https://` for every remote node.** The gateway forwards the client's
+`Authorization` header on that hop, so plaintext would put bearer tokens on the
+wire. It warns at startup for any `http://` node that is not loopback or a
+private address:
+
+```
+WARN node=radxa url=http://radxa.rocksky.social/ node is dialled over plaintext
+     http across a public network; bearer tokens will be sent in the clear.
+```
+
+**Timeouts allow for WAN latency**, not a LAN round trip — boards on domestic
+connections are slower and less reliable than a switch. The defaults in
+[`gateway.example.toml`](gateway.example.toml) are `upstream.connect_timeout =
+"10s"` and `health.timeout = "5s"`.
+
+The delegate ask is the tight one: it must answer inside the caller's budget
+(atoll allows 2s to connect and 3s to answer) because it runs on the TLS
+handshake path. The fan-out is parallel, so `delegate.ask_timeout` bounds the
+**slowest single node**, not the sum — one unreachable board does not slow the
+answer for everyone. It defaults to `2s` here, which leaves headroom under
+atoll's 3s while tolerating a slow home link.
+
+**The nodes stay directly reachable**, so a client can talk to
+`radxa.rocksky.social` instead of going through the gateway. That is fine, and
+it is how the protocol is meant to work — but two consequences follow:
+
+- *Handle allocation is still safe*, because each node asks the gateway before
+  issuing a hosted handle. The guarantee comes from
+  `ATOLL_HANDLE_DELEGATES`, not from the gateway being the only reachable door.
+  A node with that unset could allocate a colliding handle, so it must be set on
+  every node in the fleet.
+- *The gateway's registry can go stale*, because an account created directly on a
+  node was never seen by the gateway. It heals itself: the first request for
+  that account resolves through a delegate ask or the DID document and is then
+  recorded. Nothing is lost, it just costs one resolution.
+
+**Firehose reconnects matter more.** A dropped connection across the internet is
+routine, so each node's stream reconnects with exponential backoff and resumes
+from its persisted cursor rather than replaying.
+
+If you would rather not expose the nodes, put them on a private overlay
+(WireGuard, Tailscale) and give each a private `url` with its public
+`public_host` — the same shape as the loopback node below. The gateway matches
+DID documents on `public_host`, so routing is unaffected.
 
 ## Running the PDS on the same machine
 
@@ -331,18 +391,21 @@ claim the same one.
 
 ## Wiring the nodes to the gateway
 
-On every PDS in the fleet:
+On **every** PDS in the fleet, without exception:
 
 ```sh
-# The gateway owns the wildcard and answers for the whole namespace.
+# The gateway owns the wildcard and answers for the whole namespace. A node with
+# this unset will allocate handles without checking, and can collide.
 ATOLL_HANDLE_DELEGATES=https://rocksky.social
 # DID documents must name the node's own public host.
 PHX_HOST=radxa.rocksky.social
 ```
 
-DNS: point `rocksky.social` and `*.rocksky.social` at the gateway. User handles
-resolve through the gateway, which is what lets any node host any handle in the
-namespace. The nodes' own hostnames point at the nodes.
+DNS: point `rocksky.social` and `*.rocksky.social` at the gateway, so user
+handles resolve through it — that is what lets any node host any handle in the
+namespace. The nodes' own names (`radxa.rocksky.social` and friends) are A/AAAA
+records pointing at the nodes themselves, and must not fall under the wildcard's
+behaviour, so declare them explicitly.
 
 Each node keeps its own signing keys and its own session secrets. The gateway
 never holds account credentials.
@@ -410,6 +473,9 @@ Terminate TLS in front of the gateway with a certificate covering
 forwarded, and make sure the proxy sets `X-Forwarded-For` itself — the gateway
 strips any the client sent.
 
+Each node terminates its own TLS for its own hostname; the gateway is an
+ordinary HTTPS client to them and needs no certificate material of its own.
+
 ```ini
 # /etc/systemd/system/pds-gateway.service
 [Unit]
@@ -452,6 +518,10 @@ rejects it.
 
 Other boundaries:
 
+- **The gateway-to-node hop crosses the public internet** and carries the
+  client's `Authorization` header, so remote nodes must be `https://`. The
+  gateway warns at startup otherwise. Certificates are verified against the
+  webpki roots; there is no option to skip verification.
 - Hop-by-hop headers and any client-supplied `X-Forwarded-*` are stripped before
   forwarding.
 - Upstream redirects are not followed, so a node cannot move a request somewhere
