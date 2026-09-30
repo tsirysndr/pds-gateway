@@ -796,6 +796,65 @@ impl Store {
     }
 }
 
+impl Store {
+    /// Appends frames in one transaction. Batched by the caller so a busy
+    /// firehose does not mean one write per event.
+    pub async fn append_frames(&self, frames: &[(i64, Vec<u8>)]) -> Result<()> {
+        if frames.is_empty() {
+            return Ok(());
+        }
+        let ts = now();
+        let mut tx = self.pool.begin().await?;
+        for (seq, bytes) in frames {
+            sqlx::query(
+                "INSERT INTO firehose_frames (seq, bytes, created_at) VALUES (?, ?, ?) \
+                 ON CONFLICT(seq) DO NOTHING",
+            )
+            .bind(seq)
+            .bind(bytes.as_slice())
+            .bind(ts)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn frames_after(&self, cursor: i64, limit: i64) -> Result<Vec<(i64, Vec<u8>)>> {
+        let rows = sqlx::query(
+            "SELECT seq, bytes FROM firehose_frames WHERE seq > ? ORDER BY seq LIMIT ?",
+        )
+        .bind(cursor)
+        .bind(limit.clamp(1, 100_000))
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.get::<i64, _>("seq"), r.get::<Vec<u8>, _>("bytes")))
+            .collect())
+    }
+
+    pub async fn oldest_frame_seq(&self) -> Result<Option<i64>> {
+        let row = sqlx::query("SELECT MIN(seq) AS s FROM firehose_frames")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get::<Option<i64>, _>("s"))
+    }
+
+    /// Keeps the newest `keep` frames and drops the rest.
+    pub async fn prune_frames(&self, keep: i64) -> Result<u64> {
+        let result = sqlx::query(
+            "DELETE FROM firehose_frames WHERE seq <= \
+               (SELECT MAX(seq) FROM firehose_frames) - ?",
+        )
+        .bind(keep.max(1))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+}
+
 #[cfg(test)]
 mod firehose_tests {
     use super::*;
@@ -809,6 +868,32 @@ mod firehose_tests {
         store.put_firehose_cursor("radxa", 42, 100).await.unwrap();
         assert_eq!(store.firehose_cursor("radxa").await.unwrap(), Some(42));
         assert_eq!(store.firehose_next_seq().await.unwrap(), 100);
+    }
+
+    #[tokio::test]
+    async fn frames_survive_for_replay_and_are_pruned() {
+        let store = Store::open_in_memory().await.unwrap();
+        assert!(store.oldest_frame_seq().await.unwrap().is_none());
+
+        let frames: Vec<(i64, Vec<u8>)> = (1..=10).map(|n| (n, vec![n as u8])).collect();
+        store.append_frames(&frames).await.unwrap();
+
+        assert_eq!(store.oldest_frame_seq().await.unwrap(), Some(1));
+        let after = store.frames_after(7, 100).await.unwrap();
+        assert_eq!(
+            after.iter().map(|(s, _)| *s).collect::<Vec<_>>(),
+            vec![8, 9, 10]
+        );
+        // Bytes come back intact, which is what a subscriber replays.
+        assert_eq!(after[0].1, vec![8u8]);
+
+        // Re-appending the same sequence is harmless, so a retry cannot corrupt.
+        store.append_frames(&frames).await.unwrap();
+        assert_eq!(store.frames_after(0, 100).await.unwrap().len(), 10);
+
+        assert_eq!(store.prune_frames(4).await.unwrap(), 6);
+        assert_eq!(store.oldest_frame_seq().await.unwrap(), Some(7));
+        assert!(store.append_frames(&[]).await.is_ok());
     }
 
     #[tokio::test]

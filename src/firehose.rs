@@ -106,20 +106,42 @@ pub struct Firehose {
     next_seq: AtomicI64,
     buffer: RwLock<VecDeque<Frame>>,
     live: broadcast::Sender<Frame>,
+    persist: tokio::sync::mpsc::UnboundedSender<Frame>,
+    persist_rx: parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<Frame>>>,
 }
 
 impl Firehose {
     pub async fn new(config: Arc<Config>, store: Arc<Store>) -> anyhow::Result<Arc<Self>> {
         let next_seq = store.firehose_next_seq().await.unwrap_or(1).max(1);
         let (live, _) = broadcast::channel(config.firehose.subscriber_queue.max(16));
+        let (persist, persist_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        tracing::info!(next_seq, "firehose sequence resumed");
+        // Warm the in-memory buffer from disk so a restart can still serve the
+        // cursors subscribers already hold.
+        let mut buffer = VecDeque::new();
+        let keep = config.firehose.replay_buffer as i64;
+        if let Ok(frames) = store.frames_after((next_seq - 1 - keep).max(0), keep).await {
+            for (seq, bytes) in frames {
+                buffer.push_back(Frame {
+                    seq,
+                    bytes: Bytes::from(bytes),
+                });
+            }
+        }
+
+        tracing::info!(
+            next_seq,
+            replay_warm = buffer.len(),
+            "firehose sequence resumed"
+        );
         Ok(Arc::new(Self {
             config,
             store,
             next_seq: AtomicI64::new(next_seq),
-            buffer: RwLock::new(VecDeque::new()),
+            buffer: RwLock::new(buffer),
             live,
+            persist,
+            persist_rx: parking_lot::Mutex::new(Some(persist_rx)),
         }))
     }
 
@@ -133,17 +155,47 @@ impl Firehose {
     }
 
     /// Buffered frames after `cursor`, and whether the cursor was too old.
-    pub fn replay(&self, cursor: Option<i64>) -> (Vec<Frame>, bool) {
-        let buffer = self.buffer.read();
+    pub async fn replay(&self, cursor: Option<i64>) -> (Vec<Frame>, bool) {
         let Some(cursor) = cursor else {
             return (Vec::new(), false);
         };
 
-        let oldest = buffer.front().map(|f| f.seq);
-        let outdated = oldest.is_some_and(|oldest| cursor + 1 < oldest);
+        let (buffered, oldest_in_memory) = {
+            let buffer = self.buffer.read();
+            let frames: Vec<Frame> = buffer.iter().filter(|f| f.seq > cursor).cloned().collect();
+            (frames, buffer.front().map(|f| f.seq))
+        };
 
-        let frames = buffer.iter().filter(|f| f.seq > cursor).cloned().collect();
-        (frames, outdated)
+        // The buffer covers the request when it starts at or before the frame
+        // after the cursor; otherwise fall back to the durable log.
+        if oldest_in_memory.is_some_and(|oldest| oldest <= cursor + 1) {
+            return (buffered, false);
+        }
+
+        let limit = self.config.firehose.replay_buffer as i64;
+        match self.store.frames_after(cursor, limit).await {
+            Ok(rows) if !rows.is_empty() => {
+                let frames: Vec<Frame> = rows
+                    .into_iter()
+                    .map(|(seq, bytes)| Frame {
+                        seq,
+                        bytes: Bytes::from(bytes),
+                    })
+                    .collect();
+                let oldest = frames.first().map(|f| f.seq).unwrap_or(cursor + 1);
+                (frames, oldest > cursor + 1)
+            }
+            Ok(_) => {
+                let oldest = self.store.oldest_frame_seq().await.unwrap_or(None);
+                let outdated = oldest.is_some_and(|o| o > cursor + 1)
+                    || oldest_in_memory.is_some_and(|o| o > cursor + 1);
+                (buffered, outdated)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "could not read the durable replay log");
+                (buffered, oldest_in_memory.is_some_and(|o| o > cursor + 1))
+            }
+        }
     }
 
     fn publish(&self, frame: Frame) {
@@ -155,8 +207,51 @@ impl Firehose {
             }
         }
         crate::metrics::FIREHOSE_FRAMES.incr();
-        // An error means nobody is subscribed, which is not a problem.
+        // A send error means nobody is subscribed, which is not a problem.
+        let _ = self.persist.send(frame.clone());
         let _ = self.live.send(frame);
+    }
+
+    /// Batches frames to disk, so a busy firehose is not one write per event.
+    async fn persist_frames(self: Arc<Self>) {
+        let Some(mut rx) = self.persist_rx.lock().take() else {
+            return;
+        };
+
+        let keep = self.config.firehose.replay_buffer as i64;
+        let mut batch: Vec<(i64, Vec<u8>)> = Vec::with_capacity(256);
+        let mut since_prune = 0i64;
+
+        loop {
+            let first = match rx.recv().await {
+                Some(frame) => frame,
+                None => break,
+            };
+            batch.push((first.seq, first.bytes.to_vec()));
+
+            // Drain whatever else is already queued, up to a bounded batch.
+            while batch.len() < 256 {
+                match rx.try_recv() {
+                    Ok(frame) => batch.push((frame.seq, frame.bytes.to_vec())),
+                    Err(_) => break,
+                }
+            }
+
+            if let Err(e) = self.store.append_frames(&batch).await {
+                tracing::warn!(error = %e, frames = batch.len(), "could not persist firehose frames");
+            }
+            since_prune += batch.len() as i64;
+            batch.clear();
+
+            // Prune on the same cadence rather than on a timer, so an idle
+            // firehose does no work at all.
+            if since_prune >= keep.max(1) {
+                since_prune = 0;
+                if let Err(e) = self.store.prune_frames(keep).await {
+                    tracing::warn!(error = %e, "could not prune the replay log");
+                }
+            }
+        }
     }
 
     /// Reads one node's stream forever, reconnecting with backoff.
@@ -252,12 +347,15 @@ impl Firehose {
     }
 
     pub fn spawn(self: Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
-        self.config
+        let mut tasks: Vec<_> = self
+            .config
             .nodes
             .iter()
             .cloned()
             .map(|node| tokio::spawn(self.clone().follow(node)))
-            .collect()
+            .collect();
+        tasks.push(tokio::spawn(self.clone().persist_frames()));
+        tasks
     }
 }
 
@@ -348,16 +446,19 @@ mod tests {
         assert_eq!(entries[0].1.as_text(), Some("OutdatedCursor"));
     }
 
-    async fn firehose(replay_buffer: usize) -> Arc<Firehose> {
-        let config = Arc::new(Config {
+    fn config(replay_buffer: usize) -> Arc<Config> {
+        Arc::new(Config {
             firehose: crate::config::FirehoseConfig {
                 replay_buffer,
                 ..Default::default()
             },
             ..Config::default()
-        });
+        })
+    }
+
+    async fn firehose(replay_buffer: usize) -> Arc<Firehose> {
         let store = Arc::new(Store::open_in_memory().await.unwrap());
-        Firehose::new(config, store).await.unwrap()
+        Firehose::new(config(replay_buffer), store).await.unwrap()
     }
 
     #[tokio::test]
@@ -376,12 +477,12 @@ mod tests {
             });
         }
 
-        let (frames, outdated) = firehose.replay(Some(3));
+        let (frames, outdated) = firehose.replay(Some(3)).await;
         assert!(!outdated);
         assert_eq!(frames.iter().map(|f| f.seq).collect::<Vec<_>>(), vec![4, 5]);
 
         // No cursor means live-only, no replay.
-        let (frames, _) = firehose.replay(None);
+        let (frames, _) = firehose.replay(None).await;
         assert!(frames.is_empty());
     }
 
@@ -396,7 +497,7 @@ mod tests {
         }
 
         // Only 4, 5, 6 remain buffered.
-        let (frames, outdated) = firehose.replay(Some(1));
+        let (frames, outdated) = firehose.replay(Some(1)).await;
         assert!(outdated, "cursor 1 predates the buffer");
         assert_eq!(
             frames.iter().map(|f| f.seq).collect::<Vec<_>>(),
@@ -404,7 +505,7 @@ mod tests {
         );
 
         // A cursor exactly at the edge is still honourable.
-        let (_, outdated) = firehose.replay(Some(3));
+        let (_, outdated) = firehose.replay(Some(3)).await;
         assert!(!outdated);
     }
 
@@ -418,6 +519,45 @@ mod tests {
             });
         }
         assert_eq!(firehose.buffer.read().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn replay_survives_a_restart() {
+        let store = Arc::new(Store::open_in_memory().await.unwrap());
+
+        // A gateway that saw frames 1..=5 and persisted them.
+        let frames: Vec<(i64, Vec<u8>)> = (1..=5).map(|seq| (seq, frame(seq, false))).collect();
+        store.append_frames(&frames).await.unwrap();
+        store.put_firehose_cursor("radxa", 5, 6).await.unwrap();
+
+        // Restart: a fresh Firehose over the same store.
+        let restarted = Firehose::new(config(8), store).await.unwrap();
+
+        // The sequence continues rather than restarting at 1.
+        assert_eq!(restarted.current_seq(), 5);
+
+        // And a subscriber's existing cursor is still honoured, from disk.
+        let (replayed, outdated) = restarted.replay(Some(2)).await;
+        assert!(!outdated, "frames 3..=5 are still on disk");
+        assert_eq!(
+            replayed.iter().map(|f| f.seq).collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
+        assert_eq!(read_seq(&replayed[0].bytes), Some(3));
+    }
+
+    #[tokio::test]
+    async fn a_cursor_older_than_the_durable_log_is_outdated() {
+        let store = Arc::new(Store::open_in_memory().await.unwrap());
+        let frames: Vec<(i64, Vec<u8>)> = (10..=12).map(|seq| (seq, frame(seq, false))).collect();
+        store.append_frames(&frames).await.unwrap();
+        store.put_firehose_cursor("radxa", 12, 13).await.unwrap();
+
+        let restarted = Firehose::new(config(8), store).await.unwrap();
+        let (replayed, outdated) = restarted.replay(Some(1)).await;
+
+        assert!(outdated, "nothing before 10 survives, so say so");
+        assert_eq!(replayed.first().map(|f| f.seq), Some(10));
     }
 
     #[tokio::test]

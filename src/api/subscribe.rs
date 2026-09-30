@@ -102,7 +102,7 @@ async fn serve_merged(
     // Subscribe before replaying, so frames produced during the replay are not
     // lost between the two.
     let mut live = firehose.subscribe();
-    let (replay, outdated) = firehose.replay(cursor);
+    let (replay, outdated) = firehose.replay(cursor).await;
 
     if outdated
         && socket
