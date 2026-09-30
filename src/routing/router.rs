@@ -282,12 +282,20 @@ impl Router {
         }
         crate::metrics::ROUTE_CACHE_MISSES.incr();
 
-        // Inside the namespace the gateway owns, the nodes themselves are the
-        // authority for handles it has not recorded yet.
+        // Inside the namespace the gateway owns, the nodes are the authority for
+        // handles it has not recorded yet.
         if self.config.owns_handle(handle.as_str())
             && let Some(claim) = self.delegates.resolve(handle, true).await
         {
-            self.remember_claim(handle, &claim).await?;
+            // The node that answered is not necessarily the node that hosts it:
+            // a PDS acting as a delegate relays its own delegates' answers. The
+            // DID document names the real host, so confirm there.
+            if let Some(node) = self.locate_did(&claim.did).await? {
+                self.store
+                    .upsert_account(claim.did.as_str(), handle.as_str(), &node)
+                    .await?;
+                return Ok(Some(node));
+            }
             return Ok(claim.node);
         }
 
@@ -295,15 +303,6 @@ impl Router {
             return Ok(None);
         };
         self.locate_did(&did).await
-    }
-
-    async fn remember_claim(&self, handle: &Handle, claim: &Claim) -> Result<()> {
-        if let Some(node) = &claim.node {
-            self.store
-                .upsert_account(claim.did.as_str(), handle.as_str(), node)
-                .await?;
-        }
-        Ok(())
     }
 
     /// Resolves a handle for the delegate endpoint: registry first, then ask the
@@ -331,8 +330,21 @@ impl Router {
             .await
         {
             Some(claim) => {
-                self.remember_claim(handle, &claim).await?;
-                Ok(Some(claim))
+                // Record against the node the DID document names, not the node
+                // that happened to answer.
+                let node = match self.locate_did(&claim.did).await {
+                    Ok(Some(node)) => Some(node),
+                    _ => claim.node.clone(),
+                };
+                if let Some(node) = &node {
+                    self.store
+                        .upsert_account(claim.did.as_str(), handle.as_str(), node)
+                        .await?;
+                }
+                Ok(Some(Claim {
+                    did: claim.did,
+                    node,
+                }))
             }
             None => Ok(None),
         }

@@ -873,3 +873,43 @@ async fn every_forwarded_request_carries_its_origin() {
         assert!(paths.contains(expected), "{expected} was never forwarded; saw {paths:?}");
     }
 }
+
+
+#[tokio::test]
+async fn a_relayed_claim_does_not_make_the_relay_the_host() {
+    // radxa hosts the account; primary only answers for it, the way a PDS acting
+    // as a delegate relays its own delegates' answers. Trusting whoever replied
+    // would send every request for this account to the wrong node.
+    let primary = start_node("primary", vec![hosted("local.rocksky.social", "l@e.com")]).await;
+    let radxa = start_node("radxa", vec![hosted("remote.rocksky.social", "r@e.com")]).await;
+    primary.relay(&stub_did("remote.rocksky.social"), "remote.rocksky.social");
+
+    let h = harness(vec![primary, radxa], |_| {}).await;
+
+    let (status, _, body) = h
+        .get("/xrpc/com.atproto.identity.resolveHandle?handle=remote.rocksky.social")
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["did"], json!(stub_did("remote.rocksky.social")));
+
+    // The DID document, not the answering node, decides where requests go.
+    let (status, headers, body) = h
+        .get("/xrpc/com.atproto.repo.getRecord?repo=remote.rocksky.social&collection=c&rkey=1")
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        Harness::node_header(&headers).as_deref(),
+        Some("radxa"),
+        "the host is radxa; primary merely relayed the claim"
+    );
+    assert_eq!(body["servedBy"], json!("radxa"));
+
+    let account = h
+        .state
+        .store
+        .account_by_handle("remote.rocksky.social")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.node, "radxa", "the registry must record the real host");
+}

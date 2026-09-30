@@ -30,8 +30,54 @@ pub struct NodeInner {
     pub accounts: Vec<Hosted>,
     pub created: Vec<Value>,
     pub offline: bool,
+    /// Handles this node answers for but does not host, as a PDS acting as a
+    /// delegate does when it relays its own delegates' answers.
+    pub relays: Vec<Hosted>,
     /// (path, host, x-forwarded-proto) for every request the node received.
     pub seen: Vec<(String, Option<String>, Option<String>)>,
+}
+
+/// DID -> hosting public host, shared by the stub nodes and the stub PLC
+/// directory. Keyed by DID, which the stubs derive from the handle, so a handle
+/// always maps to the same document.
+static PLC: std::sync::LazyLock<Arc<Mutex<HashMap<String, String>>>> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+fn plc_register(did: &str, handle: &str, host: &str) {
+    PLC.lock()
+        .insert(did.to_owned(), format!("{host}|{handle}"));
+}
+
+/// A stand-in for plc.directory, so DID documents resolve without the network.
+async fn start_plc() -> SocketAddr {
+    let app = axum::Router::new().route(
+        "/{did}",
+        get(|axum::extract::Path(did): axum::extract::Path<String>| async move {
+            match PLC.lock().get(&did) {
+                Some(entry) => {
+                    let (host, handle) = entry.split_once('|').unwrap_or((entry.as_str(), ""));
+                    Json(json!({
+                        "id": did,
+                        "alsoKnownAs": [format!("at://{handle}")],
+                        "service": [{
+                            "id": "#atproto_pds",
+                            "type": "AtprotoPersonalDataServer",
+                            "serviceEndpoint": format!("https://{host}"),
+                        }],
+                    }))
+                    .into_response()
+                }
+                None => (StatusCode::NOT_FOUND, "not found").into_response(),
+            }
+        }),
+    );
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    addr
 }
 
 #[derive(Clone)]
@@ -60,6 +106,17 @@ impl StubNode {
         self.inner.lock().offline = offline;
     }
 
+    /// Makes this node answer resolveHandle for a handle it does not host. The
+    /// DID document still names the real host.
+    pub fn relay(&self, did: &str, handle: &str) {
+        self.inner.lock().relays.push(Hosted {
+            did: did.to_owned(),
+            handle: handle.to_owned(),
+            email: String::new(),
+            password: String::new(),
+        });
+    }
+
     #[allow(dead_code)]
     pub fn add(&self, did: &str, handle: &str, email: &str, password: &str) {
         self.inner.lock().accounts.push(Hosted {
@@ -78,6 +135,10 @@ struct StubState {
 }
 
 pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
+    let host = format!("{name}.rocksky.social");
+    for account in &seed {
+        plc_register(&account.did, &account.handle, &host);
+    }
     let inner = Arc::new(Mutex::new(NodeInner {
         accounts: seed,
         ..Default::default()
@@ -174,11 +235,11 @@ async fn resolve_handle(
     }
     let wanted = query.handle.unwrap_or_default();
 
-    match state
-        .inner
-        .lock()
+    let inner = state.inner.lock();
+    match inner
         .accounts
         .iter()
+        .chain(inner.relays.iter())
         .find(|a| a.handle.eq_ignore_ascii_case(&wanted))
     {
         Some(account) => Json(json!({"did": account.did})).into_response(),
@@ -235,6 +296,7 @@ async fn create_account(
             .to_owned(),
     });
     inner.created.push(body.clone());
+    plc_register(&did, &handle, &format!("{}.rocksky.social", state.name));
 
     Json(json!({
         "did": did,
@@ -423,6 +485,7 @@ pub struct Harness {
 
 pub async fn harness(nodes: Vec<StubNode>, tweak: impl FnOnce(&mut Config)) -> Harness {
     let dir = tempfile::tempdir().unwrap();
+    let plc = start_plc().await;
 
     let node_configs: Vec<NodeConfig> = nodes
         .iter()
@@ -452,6 +515,7 @@ pub async fn harness(nodes: Vec<StubNode>, tweak: impl FnOnce(&mut Config)) -> H
         identity: IdentityConfig {
             dns_resolution: false,
             well_known_resolution: false,
+            plc_directory_url: url::Url::parse(&format!("http://{plc}")).unwrap(),
             ..IdentityConfig::default()
         },
         health: HealthConfig {
