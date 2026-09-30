@@ -259,7 +259,7 @@ pub struct UpstreamConfig {
 impl Default for UpstreamConfig {
     fn default() -> Self {
         Self {
-            connect_timeout: DurationSetting::secs(5),
+            connect_timeout: DurationSetting::secs(10),
             request_timeout: DurationSetting::secs(60),
             transfer_timeout: DurationSetting::secs(600),
             pool_idle_timeout: DurationSetting::secs(90),
@@ -286,7 +286,7 @@ impl Default for HealthConfig {
     fn default() -> Self {
         Self {
             interval: DurationSetting::secs(15),
-            timeout: DurationSetting::secs(3),
+            timeout: DurationSetting::secs(5),
             failure_threshold: 3,
             success_threshold: 2,
             probe_path: "/xrpc/_health".to_owned(),
@@ -387,7 +387,7 @@ impl Default for DelegateConfig {
         Self {
             enabled: true,
             fan_out: true,
-            ask_timeout: DurationSetting::millis(1500),
+            ask_timeout: DurationSetting::secs(2),
             cache_ttl: DurationSetting::secs(300),
             tls_check: true,
         }
@@ -1096,6 +1096,24 @@ weight = 2
         assert_eq!(config.nodes[1].weight, 2);
         // Untouched sections keep their defaults.
         assert_eq!(config.health.failure_threshold, 3);
+    }
+
+    #[test]
+    fn defaults_are_tuned_for_nodes_across_the_internet() {
+        let config = Config::default();
+
+        assert_eq!(
+            config.upstream.connect_timeout.get(),
+            Duration::from_secs(10)
+        );
+        assert_eq!(config.health.timeout.get(), Duration::from_secs(5));
+        // The delegate ask runs on the caller's TLS handshake path, and atoll
+        // gives a delegate 3s to answer.
+        assert!(
+            config.delegate.ask_timeout.get() < Duration::from_secs(3),
+            "ask_timeout must stay under the caller's answer budget"
+        );
+        assert_eq!(config.delegate.ask_timeout.get(), Duration::from_secs(2));
     }
 
     #[test]
