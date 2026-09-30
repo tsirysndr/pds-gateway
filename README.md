@@ -47,6 +47,7 @@ Put it behind `rocksky.social` and it will route to the nodes behind it:
 - [Deployment](#deployment)
 - [Security model](#security-model)
 - [Development](#development)
+- [What the gateway does not own](#what-the-gateway-does-not-own)
 - [Limitations](#limitations)
 
 ## What it does
@@ -170,8 +171,10 @@ monotonic `seq` to every frame and rewrites that one field, leaving the signed
 commit blocks untouched. Per-node cursors and the gateway's high-water mark are
 persisted, so a restart resumes rather than replays.
 
-- `?cursor=` is served from an in-memory replay buffer; a cursor older than the
-  buffer gets an `#info` / `OutdatedCursor` frame first, as the spec requires.
+- `?cursor=` is served from a replay log kept both in memory and in SQLite, so a
+  gateway restart does not force subscribers back to a full re-crawl. Frames are
+  written in batches and pruned to `replay_buffer`. A cursor older than the log
+  still gets an `#info` / `OutdatedCursor` frame first, as the spec requires.
 - A subscriber that falls further behind than `subscriber_queue` is
   disconnected rather than allowed to grow the buffer without bound.
 - `?node=<name>` relays one node's stream verbatim, for debugging.
@@ -216,7 +219,7 @@ GATEWAY_NODES='local|http://127.0.0.1:2584|rocksky.social,radxa|https://radxa.ro
 Check it is routing:
 
 ```sh
-curl -s localhost:2583/health | jq
+curl -s localhost:2583/_gateway/health | jq
 curl -s 'localhost:2583/xrpc/com.atproto.identity.resolveHandle?handle=alice.rocksky.social'
 curl -si 'localhost:2583/xrpc/com.atproto.repo.getRecord?repo=alice.rocksky.social&collection=app.bsky.feed.post&rkey=1' | grep -i x-pdsgw-node
 ```
@@ -424,32 +427,33 @@ not correctness.
 
 ## Admin API
 
-Enabled by setting `admin.token`; unset disables it entirely. All routes take
+Enabled by setting `admin.token`; unset disables it entirely. All routes are under
+`/_gateway/admin` and take
 `Authorization: Bearer <token>`, compared in constant time.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /admin/nodes` | fleet state: health, latency, account counts |
-| `GET /admin/accounts?node=&cursor=&limit=` | registry contents, keyset paginated |
-| `DELETE /admin/accounts/{did}` | forget a mapping; the account is untouched |
-| `GET /admin/reservations` | handles held by in-flight signups |
-| `DELETE /admin/reservations/{handle}` | release a stuck reservation |
-| `GET /admin/resolve?subject=&live=true` | explain where a subject routes, and why |
-| `POST /admin/cache/purge` | drop cached entries for a `handle` or `did` |
-| `POST /admin/nodes/{from}/drain/{to}` | reassign every account after a migration |
+| `GET /_gateway/admin/nodes` | fleet state: health, latency, account counts |
+| `GET /_gateway/admin/accounts?node=&cursor=&limit=` | registry contents, keyset paginated |
+| `DELETE /_gateway/admin/accounts/{did}` | forget a mapping; the account is untouched |
+| `GET /_gateway/admin/reservations` | handles held by in-flight signups |
+| `DELETE /_gateway/admin/reservations/{handle}` | release a stuck reservation |
+| `GET /_gateway/admin/resolve?subject=&live=true` | explain where a subject routes, and why |
+| `POST /_gateway/admin/cache/purge` | drop cached entries for a `handle` or `did` |
+| `POST /_gateway/admin/nodes/{from}/drain/{to}` | reassign every account after a migration |
 
-`/admin/resolve` is the one to reach for when a request lands on the wrong node:
+`/_gateway/admin/resolve` is the one to reach for when a request lands on the wrong node:
 
 ```sh
 curl -s -H "Authorization: Bearer $TOKEN" \
-  'localhost:2583/admin/resolve?subject=alice.rocksky.social&live=true' | jq
+  'localhost:2583/_gateway/admin/resolve?subject=alice.rocksky.social&live=true' | jq
 ```
 
 ## Observability
 
-- `GET /health` — per-node health, latency, last error, firehose position.
-- `GET /health/ready` — `503` until at least one node is up. Use for readiness.
-- `GET /metrics` — Prometheus text, when `admin.metrics = true`. Counters for
+- `GET /_gateway/health` — per-node health, latency, last error, firehose position.
+- `GET /_gateway/health/ready` — `503` until at least one node is up. Use for readiness.
+- `GET /_gateway/metrics` — Prometheus text, when `admin.metrics = true`. Counters for
   requests, proxied calls, cache hits and misses, resolutions, accounts created,
   handle collisions, upstream and Redis errors, firehose frames and lagged
   subscribers; gauges for node health and per-node account counts.
@@ -571,22 +575,40 @@ src/
   api/               xrpc, wellknown, subscribe, admin, describe
 ```
 
+## What the gateway does not own
+
+The gateway is authoritative for three things only — XRPC, the handle document
+and the TLS ask. Everything else on the hostname is **passed through** to a node
+untouched, so putting it in front of a PDS that already serves the domain does
+not take any route away:
+
+| Path | Served by |
+| --- | --- |
+| `/xrpc/*` | the gateway, routed per method |
+| `/.well-known/atproto-did` | the gateway (handle authority) |
+| `/tls-check` | the gateway (on-demand TLS) |
+| `/_gateway`, `/_gateway/health`, `/_gateway/metrics`, `/_gateway/admin/*` | the gateway |
+| everything else — `/`, `/oauth/*`, `/health`, `/metrics`, `/.well-known/did.json`, assets | passed through |
+
+Gateway status lives under `/_gateway/` precisely so it cannot shadow a route the
+PDS already answers. A passed-through request carrying a bearer token goes to
+that account's own node; otherwise it goes to the default node.
+
 ## Limitations
 
-- **Firehose replay is bounded by memory.** Cursors and the sequence high-water
-  mark survive a restart, but the replay buffer does not, so a subscriber
-  reconnecting after a gateway restart gets `OutdatedCursor` and resumes from
-  the oldest frame then available. Point relays at the gateway, not at
-  individual nodes, so sequence numbers stay consistent.
-- **Fan-out results are not paginated.** `listRepos` and friends merge one page
-  per node and drop the per-node cursors rather than returning a merged cursor
-  that would be a lie. Fine for a handful of nodes; not a relay.
-- **The gateway holds no accounts.** It does not issue tokens, run OAuth, or
-  sign anything; it routes. Account-holding endpoints are served by the nodes.
-  A full entryway that owns accounts is a different, much larger thing.
-- **Account migration between nodes** is not automated. Move the repository with
-  the PDS's own import/export, then `POST /admin/nodes/{from}/drain/{to}` or
-  `DELETE /admin/accounts/{did}` to correct the registry.
+- **OAuth is single-node.** Passed-through `/oauth/*` requests go to the default
+  node unless a bearer token says otherwise, so a browser login flow for an
+  account hosted on another node is served by the default node and will not find
+  it. Issuing tokens for the whole fleet would mean the gateway becoming a full
+  entryway that owns accounts, which it deliberately is not.
+- **Account migration between nodes is not automated.** Move the repository with
+  the PDS's own import/export, then `POST /_gateway/admin/nodes/{from}/drain/{to}`
+  or `DELETE /_gateway/admin/accounts/{did}` to correct the registry.
+- **Switching an existing deployment to `multiplex` renumbers the firehose.** A
+  relay already subscribed through the PDS holds cursors in that PDS's sequence
+  space, and multiplex assigns the gateway's own. Front an established PDS with
+  `mode = "passthrough"`, which relays one node verbatim; adopt multiplex only
+  when you can let subscribers re-crawl.
 
 ## License
 
