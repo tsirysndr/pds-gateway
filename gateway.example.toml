@@ -1,0 +1,137 @@
+# pds-gateway — every setting has a GATEWAY_* environment equivalent, and the
+# environment always wins. Durations accept "30", "500ms", "5m", "1h30m".
+
+[server]
+bind = "0.0.0.0:2583"
+# How the world reaches the gateway. Used for describeServer and the DID document.
+public_url = "https://rocksky.social"
+did = "did:web:rocksky.social"
+trust_forwarded_headers = true
+shutdown_grace = "20s"
+
+[gateway]
+# Domains the gateway owns. It allocates handles under these and is the
+# authority that stops two nodes issuing the same one.
+handle_domains = ["rocksky.social"]
+# Where requests go when nothing identifies an account.
+default_node = "local"
+# least-accounts | round-robin | weighted | pinned
+placement = "least-accounts"
+reservation_ttl = "10m"
+allow_signups = true
+# Try every node on login, since an email cannot be resolved to a DID.
+broadcast_login = true
+honor_proxy_header = true
+reserved_handles = ["admin", "api", "mod", "pds", "root", "support", "www"]
+
+[delegate]
+# The gateway answers handle resolution for the whole namespace, so each PDS can
+# set ATOLL_HANDLE_DELEGATES=https://rocksky.social and stop allocating
+# colliding handles. On a miss the gateway asks the nodes, which are
+# authoritative for their own accounts.
+enabled = true
+fan_out = true
+# Keep under the caller's budget: atoll allows 2s to connect, 3s to answer.
+ask_timeout = "1500ms"
+cache_ttl = "5m"
+# Approve on-demand TLS for handles that actually exist.
+tls_check = true
+
+[identity]
+plc_directory_url = "https://plc.directory"
+handle_cache_ttl = "5m"
+handle_negative_cache_ttl = "30s"
+did_cache_ttl = "10m"
+route_cache_ttl = "5m"
+cache_capacity = 100000
+dns_resolution = true
+well_known_resolution = true
+# Empty uses the system resolver.
+dns_nameservers = []
+
+[upstream]
+connect_timeout = "5s"
+request_timeout = "60s"
+# Blobs and CAR transfers.
+transfer_timeout = "10m"
+pool_idle_timeout = "90s"
+pool_max_idle_per_host = 32
+max_buffered_body_bytes = 1048576
+
+[health]
+interval = "15s"
+timeout = "3s"
+failure_threshold = 3
+success_threshold = 2
+probe_path = "/xrpc/_health"
+# A node that failed its probe may still serve reads.
+route_to_unhealthy = true
+
+[firehose]
+# multiplex | passthrough | off
+mode = "multiplex"
+replay_buffer = 8192
+subscriber_queue = 1024
+reconnect_min_backoff = "500ms"
+reconnect_max_backoff = "30s"
+
+[store]
+path = "data/gateway.sqlite3"
+max_connections = 8
+sweep_interval = "60s"
+
+[redis]
+# Optional. Leave unset for a single gateway: SQLite stays the source of truth
+# and caches live in-process. Set it to share the resolution cache and handle
+# reservations across several gateway replicas.
+# url = "redis://127.0.0.1:6379"
+key_prefix = "pdsgw"
+fail_open = true
+connect_timeout = "3s"
+response_timeout = "2s"
+
+[admin]
+# Unset disables /admin/*.
+token = "change-me"
+metrics = true
+
+# --- the fleet -------------------------------------------------------------
+# `url` is how the gateway reaches a node; `public_host` is what that node
+# publishes in DID documents. Keeping them separate is what lets the PDS that
+# shares this machine sit on loopback while still being "rocksky.social".
+
+# The real PDS on this same server, reachable only over loopback. The gateway
+# owns port 2583 publicly, so this PDS is bound to 2584 on 127.0.0.1.
+[[nodes]]
+name = "local"
+url = "http://127.0.0.1:2584"
+public_host = "rocksky.social"
+did = "did:web:rocksky.social"
+weight = 1
+accepts_signups = true
+
+[[nodes]]
+name = "radxa"
+url = "http://radxa.lan:2583"
+public_host = "radxa.rocksky.social"
+did = "did:web:radxa.rocksky.social"
+weight = 2
+accepts_signups = true
+
+[[nodes]]
+name = "raspberrypi4"
+url = "http://raspberrypi4.lan:2583"
+public_host = "raspberrypi4.rocksky.social"
+did = "did:web:raspberrypi4.rocksky.social"
+weight = 1
+accepts_signups = true
+
+[[nodes]]
+name = "orangepi-zero-3w"
+url = "http://orangepi-zero-3w.lan:2583"
+public_host = "orangepi-zero-3w.rocksky.social"
+did = "did:web:orangepi-zero-3w.rocksky.social"
+weight = 1
+# A small board can host existing accounts without taking new ones.
+accepts_signups = false
+max_accounts = 200
