@@ -1,0 +1,51 @@
+[package]
+name = "pds-gateway"
+version = "0.1.0"
+edition = "2024"
+description = "A virtual AT Protocol PDS that routes XRPC traffic to the PDS hosting each account"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws", "macros", "http2"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "timeout", "set-header", "request-id", "normalize-path"] }
+hyper = { version = "1", features = ["full"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["io"] }
+
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip", "http2", "charset"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots", "handshake"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+toml = "0.8"
+humantime-serde = "1"
+ciborium = "0.2"
+ciborium-io = "0.2"
+
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "chrono"] }
+hickory-resolver = "0.24"
+moka = { version = "0.12", features = ["future"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+
+clap = { version = "4", features = ["derive", "env"] }
+thiserror = "2"
+anyhow = "1"
+url = { version = "2", features = ["serde"] }
+base64 = "0.22"
+rand = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+parking_lot = "0.12"
+arc-swap = "1"
+redis = { version = "1.7.1", features = ["tokio-rustls-comp", "connection-manager"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
