@@ -747,3 +747,78 @@ mod tests {
         );
     }
 }
+
+impl Store {
+    pub async fn firehose_cursor(&self, node: &str) -> Result<Option<i64>> {
+        let row = sqlx::query("SELECT upstream_seq FROM firehose_cursors WHERE node = ?")
+            .bind(node)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.get::<i64, _>("upstream_seq")))
+    }
+
+    pub async fn put_firehose_cursor(
+        &self,
+        node: &str,
+        upstream_seq: i64,
+        next_seq: i64,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "INSERT INTO firehose_cursors (node, upstream_seq, updated_at) VALUES (?, ?, ?) \
+             ON CONFLICT(node) DO UPDATE SET \
+               upstream_seq = excluded.upstream_seq, updated_at = excluded.updated_at",
+        )
+        .bind(node)
+        .bind(upstream_seq)
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO firehose_sequence (id, next_seq) VALUES (1, ?) \
+             ON CONFLICT(id) DO UPDATE SET next_seq = MAX(next_seq, excluded.next_seq)",
+        )
+        .bind(next_seq)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn firehose_next_seq(&self) -> Result<i64> {
+        let row = sqlx::query("SELECT next_seq FROM firehose_sequence WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.get::<i64, _>("next_seq")).unwrap_or(1))
+    }
+}
+
+#[cfg(test)]
+mod firehose_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cursors_start_empty_and_persist() {
+        let store = Store::open_in_memory().await.unwrap();
+        assert!(store.firehose_cursor("radxa").await.unwrap().is_none());
+        assert_eq!(store.firehose_next_seq().await.unwrap(), 1);
+
+        store.put_firehose_cursor("radxa", 42, 100).await.unwrap();
+        assert_eq!(store.firehose_cursor("radxa").await.unwrap(), Some(42));
+        assert_eq!(store.firehose_next_seq().await.unwrap(), 100);
+    }
+
+    #[tokio::test]
+    async fn the_gateway_sequence_never_goes_backwards() {
+        let store = Store::open_in_memory().await.unwrap();
+        store.put_firehose_cursor("radxa", 10, 500).await.unwrap();
+        // A lagging node must not rewind the shared high-water mark.
+        store.put_firehose_cursor("primary", 3, 200).await.unwrap();
+
+        assert_eq!(store.firehose_next_seq().await.unwrap(), 500);
+        assert_eq!(store.firehose_cursor("primary").await.unwrap(), Some(3));
+    }
+}

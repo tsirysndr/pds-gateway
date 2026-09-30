@@ -1,5 +1,6 @@
 pub mod config;
 pub mod error;
+pub mod firehose;
 pub mod health;
 pub mod identity;
 pub mod metrics;
