@@ -27,10 +27,6 @@ Put it behind `rocksky.social` and it will route to the nodes behind it:
  this machine is reached over loopback.
 ```
 
-Built on tokio and axum. Tested against the [atoll](../atoll),
-[clojure-pds](../clojure-pds) and [scala-pds](../scala-pds) implementations,
-which share the same `com.atproto.*` surface.
-
 ## Contents
 
 - [What it does](#what-it-does)
@@ -129,8 +125,8 @@ The gateway serves the three endpoints a delegate and a TLS issuer expect:
 
 These run on the TLS handshake path, so `delegate.ask_timeout` must stay under
 the caller's budget — atoll allows 2s to connect and 3s to answer, and the
-default here is 1.5s. Nodes that fail or time out simply do not claim the
-handle, so one node being down never makes a name look taken.
+default here is 2s. Nodes that fail or time out simply do not claim the handle,
+so one node being down never makes a name look taken.
 
 **Loop breaking.** The gateway marks its own fan-out requests with
 `x-pdsgw-delegate-hop`, and holds an in-flight set of handles it is currently
