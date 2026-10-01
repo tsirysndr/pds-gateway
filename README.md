@@ -415,6 +415,17 @@ never holds account credentials.
 Optional. Leave `[redis].url` unset for a single gateway: SQLite is the source
 of truth and caches live in-process, with no extra service to run.
 
+It also works against a Redis-compatible server such as DragonflyDB:
+
+```toml
+[redis]
+url = "redis://127.0.0.1:6379"
+key_prefix = "pdsgw"
+```
+
+The prefix matters when the instance is shared — a PDS on the same host may be
+using it too, under its own namespace.
+
 Set it to run several gateway replicas, which then share:
 
 - the handle/DID resolution cache (L2 behind each replica's in-process cache),
