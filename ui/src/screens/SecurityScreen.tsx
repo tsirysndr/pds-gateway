@@ -145,6 +145,15 @@ export function SecurityScreen() {
             </div>
           )}
 
+          {state === "pending" && !enrolling && (
+            <Alert tone="info" title="Setup was started but not finished">
+              The secret is shown once and the server never returns it again, so
+              the code below cannot be displayed a second time. Enter the code
+              from your authenticator if you already scanned it, or start again
+              for a fresh one.
+            </Alert>
+          )}
+
           {(state === "pending" || enrolling) && (
             <CodeForm
               label="Confirm"
@@ -152,6 +161,23 @@ export function SecurityScreen() {
               error={confirm.error}
               onSubmit={(values) => confirm.mutate(values.code)}
             />
+          )}
+
+          {state === "pending" && !enrolling && (
+            <>
+              <Divider />
+              <p className="text-sm font-medium">Start again</p>
+              <p className="text-sm text-foreground-500">
+                Replaces the pending secret with a new one. Nothing is enabled
+                until you confirm it, so this cannot lock you out.
+              </p>
+              <PasswordForm
+                label="Get a new QR code"
+                isPending={begin.isPending}
+                error={begin.error}
+                onSubmit={(values) => begin.mutate(values.password)}
+              />
+            </>
           )}
 
           {state === "enabled" && (

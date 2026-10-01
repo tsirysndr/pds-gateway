@@ -57,6 +57,54 @@ describe("two-factor over social.rocksky.auth", () => {
     expect(screen.queryByRole("button", { name: "Set up" })).not.toBeInTheDocument();
   });
 
+  it("offers a way out when enrolment is pending and the QR code is gone", async () => {
+    // Reloading the page loses the secret: it is held in memory because the
+    // server never returns it again. Without a way to restart, the account is
+    // stuck at "pending" forever.
+    server.use(
+      http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
+        HttpResponse.json({ state: "pending", recoveryRemaining: 0 }),
+      ),
+    );
+    const user = userEvent.setup();
+    signedIn();
+
+    expect(
+      await screen.findByText(/cannot be displayed a second time/i, {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+
+    // Confirming is still possible for someone who did scan it.
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+
+    // And a fresh QR code can be obtained.
+    const restart = screen.getByRole("button", { name: "Get a new QR code" });
+    const form = within(restart.closest("form")!);
+    await user.type(form.getByLabelText("Password"), "correct-horse");
+    await user.click(restart);
+
+    expect(
+      await screen.findByText("JBSWY3DPEHPK3PXP", {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Scan this with your authenticator/i)).toBeInTheDocument();
+  });
+
+  it("reports a wrong code as a bad code", async () => {
+    const user = userEvent.setup();
+    signedIn();
+
+    await user.type(await screen.findByLabelText("Password"), "correct-horse");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    await screen.findByText(/Scan this with your authenticator/i);
+
+    await user.type(screen.getByLabelText("Code"), "000000");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // The server's own message, not a generic failure.
+    expect(
+      await screen.findByText(/That code is not valid/i, {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+  });
+
   it("shows recovery codes once two-factor is on", async () => {
     server.use(
       http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
