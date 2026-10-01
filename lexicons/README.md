@@ -43,6 +43,8 @@ Their browser interfaces are untouched — these are an additional way in.
 | | `requestId` is opaque: it carries both the challenge handle and the secret the server requires to claim it, so only the caller that started a ceremony can finish it |
 | `finishPasskeyRegistration` | verify the attestation and store the credential |
 | `deletePasskey` | remove a credential |
+| `beginPasskeyLogin` | assertion options for signing in, unauthenticated |
+| `finishPasskeyLogin` | verify the assertion and return a session |
 
 ## Notes on the design
 
@@ -63,6 +65,16 @@ Passkey registration is two calls because WebAuthn is a challenge-response
 ceremony. The server keeps the challenge against `requestId` with a short
 expiry; `finishPasskeyRegistration` is the only thing that consumes it, and it
 must reject a `requestId` it did not issue to this account.
+
+The login pair takes no bearer token — it is how a session begins. `identifier`
+is optional because implementations differ: some look the account up before
+offering a challenge, others accept any discoverable credential. A client should
+send it whenever it knows it, and a client reaching a specific PDS always does,
+having resolved the handle to get there.
+
+A passkey replaces the *password*, not a second factor. An account with an
+authenticator or the email factor is still asked for one, reported the same way
+`createSession` reports it, so a client needs no special case.
 
 TOTP follows RFC 6238: 30-second steps, 6 digits, SHA-1, which is what
 authenticator apps assume. Implementations should accept the adjacent step on
