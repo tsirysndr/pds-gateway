@@ -25,7 +25,7 @@ export default definePreview({
         <JotaiProvider store={store}>
           <HeroUIProvider>
             <QueryClientProvider client={client}>
-              <div className="dark min-h-svh bg-background text-foreground">
+              <div className="min-h-svh bg-background text-foreground">
                 <Story />
               </div>
             </QueryClientProvider>
