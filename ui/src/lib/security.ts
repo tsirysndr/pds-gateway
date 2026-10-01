@@ -153,8 +153,9 @@ export type RequestOptions = {
 };
 
 export function toPublicKeyRequest(
-  options: RequestOptions,
+  raw: RequestOptions,
 ): PublicKeyCredentialRequestOptions {
+  const options = unwrap(raw);
   return {
     ...options,
     challenge: fromBase64Url(options.challenge) as BufferSource,
@@ -193,6 +194,11 @@ export function passkeysAvailable() {
 // The browser wants ArrayBuffers where the wire format uses base64url.
 
 export function fromBase64Url(value: string): Uint8Array {
+  if (typeof value !== "string" || value === "") {
+    // Without this, a missing field surfaces as "cannot read properties of
+    // undefined (reading 'replace')", which says nothing about what was wrong.
+    throw new Error("The server's WebAuthn options are missing a required field.");
+  }
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
@@ -205,9 +211,21 @@ export function toBase64Url(buffer: ArrayBuffer): string {
   return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/// Unwraps a `publicKey` envelope if the server sent one.
+///
+/// WebAuthn's own JSON helpers return `{"publicKey": {...}}`, ready to hand to
+/// `navigator.credentials`, and an implementation that forwards that verbatim
+/// nests the options one level deeper than the contract describes. Accepting
+/// both costs nothing and keeps one server's shape from breaking sign-in.
+function unwrap<T extends object>(options: T): T {
+  const nested = (options as { publicKey?: T }).publicKey;
+  return nested && typeof nested === "object" ? nested : options;
+}
+
 export function toPublicKey(
-  options: CreationOptions,
+  raw: CreationOptions,
 ): PublicKeyCredentialCreationOptions {
+  const options = unwrap(raw);
   return {
     ...options,
     challenge: fromBase64Url(options.challenge) as BufferSource,
