@@ -102,6 +102,11 @@ response_timeout = "2s"
 # to put the console in front instead.
 enabled = true
 mount = "/console"
+# Paths the console answers instead of passing them to the PDS. Its sign-in
+# resolves the handle to the account's own node, which the PDS's own page cannot
+# do. Everything adjacent (/account/sessions, /oauth/*, static assets) still
+# goes to the PDS. Set to [] to hand these back.
+screens = ["/", "/account/login", "/account/signup"]
 
 [admin]
 # Unset disables /admin/*.

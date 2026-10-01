@@ -289,7 +289,7 @@ Every setting has an equivalent. The full list:
 | `GATEWAY_REDIS_URL`, `GATEWAY_REDIS_KEY_PREFIX` | `[redis]` |
 | `GATEWAY_REDIS_FAIL_OPEN`, `GATEWAY_REDIS_CONNECT_TIMEOUT` | `[redis]` |
 | `GATEWAY_REDIS_RESPONSE_TIMEOUT` | `[redis]` |
-| `GATEWAY_UI_ENABLED`, `GATEWAY_UI_MOUNT` | `[ui]` |
+| `GATEWAY_UI_ENABLED`, `GATEWAY_UI_MOUNT`, `GATEWAY_UI_SCREENS` | `[ui]` |
 | `GATEWAY_ADMIN_TOKEN`, `GATEWAY_METRICS` | `[admin]` |
 | `GATEWAY_NODES` | the fleet, see below |
 | `GATEWAY_LOG`, `GATEWAY_LOG_JSON` | logging |
@@ -602,6 +602,8 @@ not take any route away:
 | `/_gateway`, `/_gateway/health`, `/_gateway/metrics`, `/_gateway/admin/*` | the gateway |
 | `/_gateway/pds` | the gateway (fleet list for the console) |
 | `/console` (`ui.mount`) | the bundled console, compiled into the binary |
+| `/`, `/account/login`, `/account/signup` (`ui.screens`) | the console, in front of the PDS's own pages |
+| `/_gateway/console/*` | the console's assets |
 | `/xrpc/social.rocksky.auth.*` | routed to the account's node like any XRPC method |
 | everything else — `/`, `/oauth/*`, `/health`, `/metrics`, `/.well-known/did.json`, assets | passed through |
 
