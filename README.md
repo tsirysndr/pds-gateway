@@ -152,10 +152,12 @@ is a test for that.
 
 ## Sign-in
 
-An API login (`com.atproto.server.createSession`) is routed by its `identifier`:
-a handle or DID resolves to its node and the credentials go **only** there. An
-email cannot be resolved, so the first login tries each node in turn and the
-answer is remembered, making later logins a single request.
+An API login (`com.atproto.server.createSession`) is routed by its `identifier`.
+A handle or DID resolves to its node and the credentials go **only** there — even
+when the password is wrong, so the answer is that node's own verdict and the
+credentials are never offered to a node that does not hold the account. An email
+cannot be resolved, so the first login tries each node in turn and the answer is
+remembered, making later logins a single request.
 
 A browser sign-in is different, because the form is rendered by one node and its
 CSRF token is only valid there. Proxying the submission to another node would be

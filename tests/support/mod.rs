@@ -361,9 +361,12 @@ async fn create_session(
             "servedBy": state.name,
         }))
         .into_response(),
+        // Real implementations disagree on this shape; scala-pds and clojure-pds
+        // do not say "InvalidPassword". A wrong password must still be the final
+        // answer when the gateway knows which node holds the account.
         Some(_) => (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "InvalidPassword", "message": "wrong password"})),
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "InvalidRequest", "message": "wrong password"})),
         )
             .into_response(),
         None => (

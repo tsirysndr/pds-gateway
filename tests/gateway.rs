@@ -375,10 +375,10 @@ async fn a_wrong_password_is_answered_not_retried_elsewhere() {
         )
         .await;
 
-    assert_eq!(status, 401);
+    assert_eq!(status, 400);
     assert_eq!(
-        body["error"],
-        json!("InvalidPassword"),
+        body["message"],
+        json!("wrong password"),
         "the holding node's verdict must be returned verbatim"
     );
 }
@@ -1156,5 +1156,44 @@ async fn the_redirect_uses_the_nodes_own_signin_path() {
     assert_eq!(
         headers.get("location").unwrap().to_str().unwrap(),
         "https://radxa.rocksky.social/sign-in?login_hint=bob.rocksky.social"
+    );
+}
+
+#[tokio::test]
+async fn a_known_identifier_is_never_swept_across_the_fleet() {
+    let h = fleet().await;
+
+    // Teach the gateway where bob lives.
+    let _ = h
+        .get("/xrpc/com.atproto.identity.resolveHandle?handle=bob.rocksky.social")
+        .await;
+
+    // A wrong password must come back as radxa's verdict, not trigger a sweep
+    // that offers the credentials to every other node.
+    let (status, headers, body) = h
+        .post(
+            "/xrpc/com.atproto.server.createSession",
+            json!({"identifier": "bob.rocksky.social", "password": "wrong-password"}),
+        )
+        .await;
+
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("radxa"));
+    assert_eq!(body["message"], json!("wrong password"));
+
+    let leaked: Vec<&String> = h
+        .nodes
+        .iter()
+        .filter(|(name, _)| name.as_str() != "radxa")
+        .filter(|(_, node)| {
+            node.seen()
+                .iter()
+                .any(|(p, _, _)| p == "/xrpc/com.atproto.server.createSession")
+        })
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "a failed password was offered to nodes that do not host the account: {leaked:?}"
     );
 }
