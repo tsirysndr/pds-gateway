@@ -32,7 +32,6 @@ Put it behind `rocksky.social` and it will route to the nodes behind it:
 - [What it does](#what-it-does)
 - [How routing works](#how-routing-works)
 - [Handle collisions and the delegate protocol](#handle-collisions-and-the-delegate-protocol)
-- [Sign-in](#sign-in)
 - [Account placement](#account-placement)
 - [The firehose](#the-firehose)
 - [Caching](#caching)
@@ -150,53 +149,6 @@ Account creation then goes through a two-phase reservation:
 Concurrent signups for one handle therefore produce exactly one account; there
 is a test for that.
 
-## Sign-in
-
-An API login (`com.atproto.server.createSession`) is routed by its `identifier`.
-A handle or DID resolves to its node and the credentials go **only** there — even
-when the password is wrong, so the answer is that node's own verdict and the
-credentials are never offered to a node that does not hold the account. An email
-cannot be resolved, so the first login tries each node in turn and the answer is
-remembered, making later logins a single request.
-
-A browser sign-in is different, because the form is rendered by one node and its
-CSRF token is only valid there. Proxying the submission to another node would be
-rejected, so the gateway intercepts the configured sign-in paths, reads the
-`identifier` field, and when the account lives on another node replies
-`303 See Other` to that node's own sign-in page with `?login_hint=`:
-
-```
-POST /account/login            identifier=bob.rocksky.social
-  -> 303 https://radxa.rocksky.social/account/login?login_hint=bob.rocksky.social
-```
-
-The password is entered on the PDS that can verify it and is never replayed to
-another host — the redirect is a `303`, so the browser re-issues a `GET`. A
-sign-in for an account on the default node is proxied unchanged, and an
-identifier that resolves to nothing is left to the default node to answer, so
-neither case changes behaviour.
-
-A browser is only ever sent to a node that declares `signin_path`, because not
-every PDS has a frontend — of the implementations here only atoll serves
-`/account/login`, while clojure-pds and scala-pds have none. A node without it
-is left alone and the default node answers, rather than the user landing on a
-404 on another host. Accounts on such a node can still sign in through the API.
-
-```toml
-[[nodes]]
-name = "radxa"
-url = "https://radxa.rocksky.social"
-signin_path = "/account/login"   # has a frontend: sign-ins may be sent here
-
-[[nodes]]
-name = "raspberrypi4"
-url = "https://raspberrypi4.rocksky.social"
-# no signin_path: serves no sign-in page, so no browser is sent to it
-```
-
-Set `gateway.signin_redirect = false` to disable this entirely, or
-`gateway.signin_paths` to match a frontend that intercepts different paths.
-
 ## Account placement
 
 `gateway.placement` picks the node for a new account among those that are
@@ -296,7 +248,6 @@ did = "did:web:radxa.rocksky.social"   # lets the gateway route on a token's aud
 weight = 2
 accepts_signups = true
 max_accounts = 5000
-signin_path = "/account/login"         # omit when the PDS has no frontend
 ```
 
 For a node on the public internet the two hosts are the same, and `url` must be
@@ -316,7 +267,6 @@ Every setting has an equivalent. The full list:
 | `GATEWAY_PLACEMENT`, `GATEWAY_DEFAULT_NODE` | `[gateway]` |
 | `GATEWAY_RESERVATION_TTL`, `GATEWAY_ALLOW_SIGNUPS` | `[gateway]` |
 | `GATEWAY_BROADCAST_LOGIN`, `GATEWAY_HONOR_PROXY_HEADER` | `[gateway]` |
-| `GATEWAY_SIGNIN_REDIRECT`, `GATEWAY_SIGNIN_PATHS` | `[gateway]` |
 | `GATEWAY_DELEGATE_ENABLED`, `GATEWAY_DELEGATE_FAN_OUT` | `[delegate]` |
 | `GATEWAY_DELEGATE_ASK_TIMEOUT`, `GATEWAY_DELEGATE_CACHE_TTL` | `[delegate]` |
 | `GATEWAY_DELEGATE_TLS_CHECK` | `[delegate]` |
@@ -638,7 +588,6 @@ not take any route away:
 | `/.well-known/atproto-did` | the gateway (handle authority) |
 | `/tls-check` | the gateway (on-demand TLS) |
 | `/_gateway`, `/_gateway/health`, `/_gateway/metrics`, `/_gateway/admin/*` | the gateway |
-| `/account/login` (`gateway.signin_paths`) | intercepted, then the owning PDS |
 | everything else — `/`, `/oauth/*`, `/health`, `/metrics`, `/.well-known/did.json`, assets | passed through |
 
 Gateway status lives under `/_gateway/` precisely so it cannot shadow a route the
@@ -648,16 +597,10 @@ that account's own node; otherwise it goes to the default node.
 ## Limitations
 
 - **OAuth is single-node.** Passed-through `/oauth/*` requests go to the default
-  node unless a bearer token says otherwise. An atproto OAuth client resolves the
-  user's DID document and talks to their PDS directly, so this mostly affects a
-  flow that was pointed at the gateway deliberately. `/oauth/authorize` is not
-  redirected the way sign-in is, because its `request_uri` was issued by one
-  node's PAR and is meaningless on another. Issuing tokens for the whole fleet
-  would mean the gateway becoming a full entryway that owns accounts, which it
-  deliberately is not.
-- **A cross-node sign-in loses its post-login destination.** The redirect
-  carries the identifier but not any `next`/return URL the first node had, so the
-  user lands on that PDS's own page afterwards.
+  node unless a bearer token says otherwise, so a browser login flow for an
+  account hosted on another node is served by the default node and will not find
+  it. Issuing tokens for the whole fleet would mean the gateway becoming a full
+  entryway that owns accounts, which it deliberately is not.
 - **Account migration between nodes is not automated.** Move the repository with
   the PDS's own import/export, then `POST /_gateway/admin/nodes/{from}/drain/{to}`
   or `DELETE /_gateway/admin/accounts/{did}` to correct the registry.

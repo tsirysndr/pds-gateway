@@ -45,12 +45,6 @@ pub struct NodeConfig {
     pub accepts_signups: bool,
     #[serde(default)]
     pub max_accounts: Option<u64>,
-    /// Path to this node's own browser sign-in page, if it has one. A sign-in
-    /// for an account here is redirected to it. Unset means this PDS serves no
-    /// sign-in page, so a browser is never sent to it — not every
-    /// implementation has a frontend.
-    #[serde(default)]
-    pub signin_path: Option<String>,
 }
 
 fn one() -> u32 {
@@ -144,12 +138,6 @@ pub struct GatewayConfig {
     /// the gateway cannot resolve to a DID on its own.
     pub broadcast_login: bool,
     pub honor_proxy_header: bool,
-    /// Send a browser sign-in to the PDS that hosts the account named in the
-    /// form, instead of letting the default node reject it.
-    pub signin_redirect: bool,
-    /// Browser sign-in paths to intercept. The form field naming the account is
-    /// `identifier`, matching the PDS frontend.
-    pub signin_paths: Vec<String>,
 }
 
 /// Newtype so `Duration` fields keep humantime spelling without repeating the
@@ -219,8 +207,6 @@ impl Default for GatewayConfig {
             allow_signups: true,
             broadcast_login: true,
             honor_proxy_header: true,
-            signin_redirect: true,
-            signin_paths: vec!["/account/login".to_owned()],
         }
     }
 }
@@ -541,7 +527,6 @@ fn parse_nodes_env(raw: &str) -> Result<Vec<NodeConfig>, ConfigError> {
             },
             accepts_signups: field(4).and_then(parse_bool).unwrap_or(true),
             max_accounts: None,
-            signin_path: field(6).map(str::to_owned),
         });
     }
 
@@ -619,10 +604,6 @@ impl Config {
             "GATEWAY_HONOR_PROXY_HEADER",
             &mut self.gateway.honor_proxy_header,
         )?;
-        parse_env_bool("GATEWAY_SIGNIN_REDIRECT", &mut self.gateway.signin_redirect)?;
-        if let Some(paths) = parse_env_list("GATEWAY_SIGNIN_PATHS") {
-            self.gateway.signin_paths = paths;
-        }
 
         parse_env(
             "GATEWAY_PLC_DIRECTORY_URL",
@@ -792,13 +773,6 @@ impl Config {
 
         for node in &mut self.nodes {
             node.name = node.name.trim().to_ascii_lowercase();
-            if let Some(path) = &mut node.signin_path {
-                *path = path.trim().to_owned();
-                if !path.starts_with('/') {
-                    path.insert(0, '/');
-                }
-            }
-            node.signin_path = node.signin_path.take().filter(|p| p.len() > 1);
             if let Some(host) = &mut node.public_host {
                 *host = host.trim().to_ascii_lowercase();
             }
@@ -807,14 +781,6 @@ impl Config {
                 node.url.set_path("");
             }
         }
-
-        for path in &mut self.gateway.signin_paths {
-            *path = path.trim().to_owned();
-            if !path.starts_with('/') {
-                path.insert(0, '/');
-            }
-        }
-        self.gateway.signin_paths.retain(|p| p.len() > 1);
 
         if !self.health.probe_path.starts_with('/') {
             self.health.probe_path.insert(0, '/');
@@ -987,7 +953,6 @@ mod tests {
             weight: 1,
             accepts_signups: true,
             max_accounts: None,
-            signin_path: None,
         }
     }
 

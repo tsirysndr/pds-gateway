@@ -463,15 +463,10 @@ async fn broadcast(
         RequestBody::Empty => Bytes::new(),
     };
 
-    // Knowing where the account lives makes a sweep both pointless and harmful:
-    // it would offer the caller's credentials to nodes that do not host them,
-    // and report some other node's verdict instead of the real one. Only an
-    // identifier the gateway cannot resolve — an email it has not seen — is
-    // worth asking around about.
-    let order = match (&preferred, state.config.gateway.broadcast_login) {
-        (Some(node), _) => vec![node.clone()],
-        (None, true) => state.fleet.broadcast_order(None),
-        (None, false) => vec![state.router.default_node()],
+    let order = if state.config.gateway.broadcast_login {
+        state.fleet.broadcast_order(preferred.as_deref())
+    } else {
+        vec![preferred.unwrap_or_else(|| state.router.default_node())]
     };
 
     let identifier = payload

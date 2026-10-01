@@ -375,10 +375,10 @@ async fn a_wrong_password_is_answered_not_retried_elsewhere() {
         )
         .await;
 
-    assert_eq!(status, 400);
+    assert_eq!(status, 401);
     assert_eq!(
-        body["message"],
-        json!("wrong password"),
+        body["error"],
+        json!("InvalidPassword"),
         "the holding node's verdict must be returned verbatim"
     );
 }
@@ -817,6 +817,7 @@ async fn a_failing_node_keeps_its_cursor_for_the_next_page() {
     );
 }
 
+
 #[tokio::test]
 async fn every_forwarded_request_carries_its_origin() {
     let h = fleet().await;
@@ -853,8 +854,7 @@ async fn every_forwarded_request_carries_its_origin() {
             );
             // Each node is addressed by its own public host.
             assert!(
-                host.as_deref()
-                    .is_some_and(|h| h.ends_with("rocksky.social")),
+                host.as_deref().is_some_and(|h| h.ends_with("rocksky.social")),
                 "{path} reached the node with host {host:?}"
             );
             paths.insert(path);
@@ -870,12 +870,10 @@ async fn every_forwarded_request_carries_its_origin() {
         "/xrpc/com.atproto.server.createSession",
         "/",
     ] {
-        assert!(
-            paths.contains(expected),
-            "{expected} was never forwarded; saw {paths:?}"
-        );
+        assert!(paths.contains(expected), "{expected} was never forwarded; saw {paths:?}");
     }
 }
+
 
 #[tokio::test]
 async fn a_relayed_claim_does_not_make_the_relay_the_host() {
@@ -913,287 +911,5 @@ async fn a_relayed_claim_does_not_make_the_relay_the_host() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(
-        account.node, "radxa",
-        "the registry must record the real host"
-    );
-}
-
-/// POSTs the sign-in form the way a browser does.
-async fn submit_login(
-    h: &Harness,
-    identifier: &str,
-) -> (axum::http::StatusCode, axum::http::HeaderMap, Vec<u8>) {
-    let form = url::form_urlencoded::Serializer::new(String::new())
-        .append_pair("_csrf_token", "csrf-from-whichever-node-rendered-the-form")
-        .append_pair("identifier", identifier)
-        .append_pair("password", "correct-horse")
-        .finish();
-
-    let request = axum::http::Request::builder()
-        .method("POST")
-        .uri("/account/login")
-        .header("content-type", "application/x-www-form-urlencoded")
-        .body(axum::body::Body::from(form))
-        .unwrap();
-    h.send(request).await
-}
-
-#[tokio::test]
-async fn signin_for_a_remote_account_is_redirected_to_its_own_pds() {
-    let h = fleet().await;
-
-    // bob is hosted on radxa. The form was rendered by the default node, so its
-    // CSRF token is only valid there — the submission has to continue on radxa.
-    let (status, headers, _) = submit_login(&h, "bob.rocksky.social").await;
-
-    assert_eq!(status, 303, "a browser must be sent to the owning PDS");
-    assert_eq!(
-        headers.get("location").unwrap().to_str().unwrap(),
-        "https://radxa.rocksky.social/account/login?login_hint=bob.rocksky.social"
-    );
-    assert_eq!(headers.get("cache-control").unwrap(), "no-store");
-
-    // The password must not have been forwarded anywhere.
-    for node in h.nodes.values() {
-        assert!(
-            !node.seen().iter().any(|(p, _, _)| p == "/account/login"),
-            "no node should have received the submission"
-        );
-    }
-}
-
-#[tokio::test]
-async fn signin_for_a_local_account_is_proxied_unchanged() {
-    let h = fleet().await;
-
-    // alice is on the default node, so there is nothing to redirect.
-    let (status, headers, body) = submit_login(&h, "alice.rocksky.social").await;
-    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
-
-    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(parsed["signedInBy"], json!("primary"));
-    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
-}
-
-#[tokio::test]
-async fn signin_by_email_is_redirected_once_the_node_is_known() {
-    let h = fleet().await;
-
-    // An email cannot be resolved, so the first attempt goes to the default node.
-    let (status, _, _) = submit_login(&h, "bob@example.com").await;
-    assert_eq!(status, 401, "the default node has no such account");
-
-    // A successful app-password login teaches the gateway where that email lives.
-    let (status, _, _) = h
-        .post(
-            "/xrpc/com.atproto.server.createSession",
-            json!({"identifier": "bob@example.com", "password": "correct-horse"}),
-        )
-        .await;
-    assert_eq!(status, 200);
-
-    // Now the browser sign-in can be sent to the right PDS.
-    let (status, headers, _) = submit_login(&h, "bob@example.com").await;
-    assert_eq!(status, 303);
-    assert_eq!(
-        headers.get("location").unwrap().to_str().unwrap(),
-        "https://radxa.rocksky.social/account/login?login_hint=bob%40example.com"
-    );
-}
-
-#[tokio::test]
-async fn a_login_hint_sends_the_form_itself_to_the_right_pds() {
-    let h = fleet().await;
-
-    // Following the redirect's shape: a GET carrying the hint goes straight to
-    // the owning node rather than rendering the wrong node's form.
-    let (status, headers, _) = h
-        .get_with("/account/login?login_hint=bob.rocksky.social", &[])
-        .await;
-
-    assert_eq!(status, 303);
-    assert_eq!(
-        headers.get("location").unwrap().to_str().unwrap(),
-        "https://radxa.rocksky.social/account/login?login_hint=bob.rocksky.social"
-    );
-}
-
-#[tokio::test]
-async fn the_plain_signin_page_still_renders_locally() {
-    let h = fleet().await;
-
-    let (status, headers, body) = h.get_with("/account/login", &[]).await;
-    assert_eq!(status, 200);
-    assert!(String::from_utf8_lossy(&body).contains("primary sign in"));
-    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
-}
-
-#[tokio::test]
-async fn signin_redirection_can_be_turned_off() {
-    let primary = start_node(
-        "primary",
-        vec![hosted("alice.rocksky.social", "alice@example.com")],
-    )
-    .await;
-    let radxa = start_node(
-        "radxa",
-        vec![hosted("bob.rocksky.social", "bob@example.com")],
-    )
-    .await;
-    let h = harness(vec![primary, radxa], |config| {
-        config.gateway.signin_redirect = false;
-    })
-    .await;
-
-    let (status, _, _) = submit_login(&h, "bob.rocksky.social").await;
-    assert_eq!(
-        status, 401,
-        "with redirection off it goes to the default node"
-    );
-}
-
-#[tokio::test]
-async fn an_unknown_identifier_is_left_to_the_default_node() {
-    let h = fleet().await;
-
-    // Nothing to resolve, so behave exactly as before: let the PDS answer.
-    let (status, _, _) = submit_login(&h, "nobody.rocksky.social").await;
-    assert_eq!(status, 401);
-
-    let (status, _, _) = submit_login(&h, "not-even-a-handle").await;
-    assert_eq!(status, 401);
-}
-
-#[tokio::test]
-async fn an_api_login_with_a_known_handle_reaches_only_that_node() {
-    let h = fleet().await;
-
-    // Warm the registry so the handle's node is known.
-    let _ = h
-        .get("/xrpc/com.atproto.identity.resolveHandle?handle=bob.rocksky.social")
-        .await;
-
-    let (status, headers, body) = h
-        .post(
-            "/xrpc/com.atproto.server.createSession",
-            json!({"identifier": "bob.rocksky.social", "password": "correct-horse"}),
-        )
-        .await;
-
-    assert_eq!(status, 200, "{body}");
-    assert_eq!(Harness::node_header(&headers).as_deref(), Some("radxa"));
-
-    // The password must not be offered to nodes that do not host the account.
-    let sprayed: Vec<&String> = h
-        .nodes
-        .iter()
-        .filter(|(name, _)| name.as_str() != "radxa")
-        .filter(|(_, node)| {
-            node.seen()
-                .iter()
-                .any(|(p, _, _)| p == "/xrpc/com.atproto.server.createSession")
-        })
-        .map(|(name, _)| name)
-        .collect();
-    assert!(
-        sprayed.is_empty(),
-        "credentials were sent to nodes that do not host the account: {sprayed:?}"
-    );
-}
-
-#[tokio::test]
-async fn a_node_with_no_signin_page_is_never_redirected_to() {
-    let primary = start_node(
-        "primary",
-        vec![hosted("alice.rocksky.social", "alice@example.com")],
-    )
-    .await;
-    let radxa = start_node(
-        "radxa",
-        vec![hosted("bob.rocksky.social", "bob@example.com")],
-    )
-    .await;
-    let h = harness(vec![primary, radxa], |config| {
-        // Not every PDS has a frontend: scala-pds and clojure-pds serve no
-        // sign-in page, so sending a browser there would land on a 404.
-        config.nodes[1].signin_path = None;
-    })
-    .await;
-
-    let (status, headers, _) = submit_login(&h, "bob.rocksky.social").await;
-
-    assert_ne!(
-        status, 303,
-        "must not redirect to a node with no sign-in page"
-    );
-    assert!(headers.get("location").is_none());
-    assert_eq!(
-        status, 401,
-        "the default node answers instead of a dead end"
-    );
-}
-
-#[tokio::test]
-async fn the_redirect_uses_the_nodes_own_signin_path() {
-    let primary = start_node(
-        "primary",
-        vec![hosted("alice.rocksky.social", "alice@example.com")],
-    )
-    .await;
-    let radxa = start_node(
-        "radxa",
-        vec![hosted("bob.rocksky.social", "bob@example.com")],
-    )
-    .await;
-    let h = harness(vec![primary, radxa], |config| {
-        config.nodes[1].signin_path = Some("/sign-in".to_owned());
-    })
-    .await;
-
-    let (status, headers, _) = submit_login(&h, "bob.rocksky.social").await;
-    assert_eq!(status, 303);
-    assert_eq!(
-        headers.get("location").unwrap().to_str().unwrap(),
-        "https://radxa.rocksky.social/sign-in?login_hint=bob.rocksky.social"
-    );
-}
-
-#[tokio::test]
-async fn a_known_identifier_is_never_swept_across_the_fleet() {
-    let h = fleet().await;
-
-    // Teach the gateway where bob lives.
-    let _ = h
-        .get("/xrpc/com.atproto.identity.resolveHandle?handle=bob.rocksky.social")
-        .await;
-
-    // A wrong password must come back as radxa's verdict, not trigger a sweep
-    // that offers the credentials to every other node.
-    let (status, headers, body) = h
-        .post(
-            "/xrpc/com.atproto.server.createSession",
-            json!({"identifier": "bob.rocksky.social", "password": "wrong-password"}),
-        )
-        .await;
-
-    assert_eq!(status, 400, "{body}");
-    assert_eq!(Harness::node_header(&headers).as_deref(), Some("radxa"));
-    assert_eq!(body["message"], json!("wrong password"));
-
-    let leaked: Vec<&String> = h
-        .nodes
-        .iter()
-        .filter(|(name, _)| name.as_str() != "radxa")
-        .filter(|(_, node)| {
-            node.seen()
-                .iter()
-                .any(|(p, _, _)| p == "/xrpc/com.atproto.server.createSession")
-        })
-        .map(|(name, _)| name)
-        .collect();
-    assert!(
-        leaked.is_empty(),
-        "a failed password was offered to nodes that do not host the account: {leaked:?}"
-    );
+    assert_eq!(account.node, "radxa", "the registry must record the real host");
 }

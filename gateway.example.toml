@@ -22,11 +22,6 @@ allow_signups = true
 # Try every node on login, since an email cannot be resolved to a DID.
 broadcast_login = true
 honor_proxy_header = true
-# Send a browser sign-in to the PDS that holds the account. The form's CSRF
-# token is only valid on the node that rendered it, so a submission for an
-# account elsewhere is redirected rather than proxied.
-signin_redirect = true
-signin_paths = ["/account/login"]
 reserved_handles = ["admin", "api", "mod", "pds", "root", "support", "www"]
 
 [delegate]
@@ -126,7 +121,6 @@ public_host = "rocksky.social"
 did = "did:web:rocksky.social"
 weight = 1
 accepts_signups = true
-signin_path = "/account/login"
 
 [[nodes]]
 name = "radxa"
@@ -135,9 +129,6 @@ public_host = "radxa.rocksky.social"
 did = "did:web:radxa.rocksky.social"
 weight = 2
 accepts_signups = true
-# This node runs atoll, which serves a sign-in page, so a browser sign-in for an
-# account here is redirected to it. Omit for a PDS with no frontend.
-signin_path = "/account/login"
 
 [[nodes]]
 name = "raspberrypi4"
@@ -156,5 +147,3 @@ weight = 1
 # A small board can host existing accounts without taking new ones.
 accepts_signups = false
 max_accounts = 200
-# No signin_path: this implementation serves no sign-in page, so the gateway
-# never sends a browser here. Its accounts sign in through the API.

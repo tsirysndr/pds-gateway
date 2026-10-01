@@ -52,26 +52,24 @@ fn plc_register(did: &str, handle: &str, host: &str) {
 async fn start_plc() -> SocketAddr {
     let app = axum::Router::new().route(
         "/{did}",
-        get(
-            |axum::extract::Path(did): axum::extract::Path<String>| async move {
-                match PLC.lock().get(&did) {
-                    Some(entry) => {
-                        let (host, handle) = entry.split_once('|').unwrap_or((entry.as_str(), ""));
-                        Json(json!({
-                            "id": did,
-                            "alsoKnownAs": [format!("at://{handle}")],
-                            "service": [{
-                                "id": "#atproto_pds",
-                                "type": "AtprotoPersonalDataServer",
-                                "serviceEndpoint": format!("https://{host}"),
-                            }],
-                        }))
-                        .into_response()
-                    }
-                    None => (StatusCode::NOT_FOUND, "not found").into_response(),
+        get(|axum::extract::Path(did): axum::extract::Path<String>| async move {
+            match PLC.lock().get(&did) {
+                Some(entry) => {
+                    let (host, handle) = entry.split_once('|').unwrap_or((entry.as_str(), ""));
+                    Json(json!({
+                        "id": did,
+                        "alsoKnownAs": [format!("at://{handle}")],
+                        "service": [{
+                            "id": "#atproto_pds",
+                            "type": "AtprotoPersonalDataServer",
+                            "serviceEndpoint": format!("https://{host}"),
+                        }],
+                    }))
+                    .into_response()
                 }
-            },
-        ),
+                None => (StatusCode::NOT_FOUND, "not found").into_response(),
+            }
+        }),
     );
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -177,7 +175,6 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
         .route("/health", get(pds_health))
         .route("/metrics", get(pds_metrics))
         .route("/oauth/par", post(pds_par))
-        .route("/account/login", get(login_form).post(login_submit))
         .route("/.well-known/did.json", get(pds_did_json))
         .with_state(state);
 
@@ -202,11 +199,11 @@ fn record(state: &StubState, headers: &HeaderMap, path: &str) {
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned)
     };
-    state
-        .inner
-        .lock()
-        .seen
-        .push((path.to_owned(), header("host"), header("x-forwarded-proto")));
+    state.inner.lock().seen.push((
+        path.to_owned(),
+        header("host"),
+        header("x-forwarded-proto"),
+    ));
 }
 
 fn offline(state: &StubState) -> Option<Response> {
@@ -361,12 +358,9 @@ async fn create_session(
             "servedBy": state.name,
         }))
         .into_response(),
-        // Real implementations disagree on this shape; scala-pds and clojure-pds
-        // do not say "InvalidPassword". A wrong password must still be the final
-        // answer when the gateway knows which node holds the account.
         Some(_) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "InvalidRequest", "message": "wrong password"})),
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "InvalidPassword", "message": "wrong password"})),
         )
             .into_response(),
         None => (
@@ -426,43 +420,6 @@ async fn pds_metrics(State(state): State<StubState>) -> Response {
         format!("pds_up{{node=\"{}\"}} 1\n", state.name),
     )
         .into_response()
-}
-
-async fn login_form(State(state): State<StubState>, headers: HeaderMap) -> Response {
-    record(&state, &headers, "/account/login");
-    (
-        [("content-type", "text/html")],
-        format!("<form>{} sign in</form>", state.name),
-    )
-        .into_response()
-}
-
-async fn login_submit(
-    State(state): State<StubState>,
-    headers: HeaderMap,
-    body: String,
-) -> Response {
-    record(&state, &headers, "/account/login");
-    let identifier = url::form_urlencoded::parse(body.as_bytes())
-        .find(|(k, _)| k == "identifier")
-        .map(|(_, v)| v.to_string())
-        .unwrap_or_default();
-
-    // A real frontend verifies the CSRF token the node itself issued; a node
-    // that does not host the account simply has no such account.
-    let hosts = state.inner.lock().accounts.iter().any(|a| {
-        a.handle.eq_ignore_ascii_case(&identifier) || a.email.eq_ignore_ascii_case(&identifier)
-    });
-
-    if hosts {
-        Json(json!({"signedInBy": state.name, "identifier": identifier})).into_response()
-    } else {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "invalid_credentials", "node": state.name})),
-        )
-            .into_response()
-    }
 }
 
 async fn pds_par(State(state): State<StubState>) -> Response {
@@ -540,9 +497,6 @@ pub async fn harness(nodes: Vec<StubNode>, tweak: impl FnOnce(&mut Config)) -> H
             weight: 1,
             accepts_signups: true,
             max_accounts: None,
-            // Every stub serves /account/login; a node without one is covered by
-            // its own test.
-            signin_path: Some("/account/login".to_owned()),
         })
         .collect();
 
