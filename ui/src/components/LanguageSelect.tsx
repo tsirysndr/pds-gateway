@@ -16,7 +16,7 @@ export function LanguageSelect() {
       aria-label={t("common.language")}
       size="sm"
       variant="bordered"
-      className="max-w-40"
+      className="w-48 min-w-48"
       selectedKeys={[current]}
       startContent={<IconLanguage size={16} className="text-default-400" aria-hidden />}
       onSelectionChange={(keys) => {
