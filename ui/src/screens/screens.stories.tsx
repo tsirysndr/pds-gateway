@@ -65,13 +65,8 @@ export const TwoFactorEnrolling: StoryObj = {
   parameters: {
     msw: {
       handlers: [
-        http.get("*/account/security", () => HttpResponse.json({ state: "pending" })),
-        http.post("*/account/security/begin", () =>
-          HttpResponse.json({
-            state: "pending",
-            secret: "JBSWY3DPEHPK3PXP",
-            uri: "otpauth://totp/rocksky.social:alice.rocksky.social?secret=JBSWY3DPEHPK3PXP&issuer=rocksky.social",
-          }),
+        http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
+          HttpResponse.json({ state: "pending" }),
         ),
         ...handlers,
       ],
@@ -85,7 +80,27 @@ export const TwoFactorEnabled: StoryObj = {
   parameters: {
     msw: {
       handlers: [
-        http.get("*/account/security", () => HttpResponse.json({ state: "enabled" })),
+        http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
+          HttpResponse.json({ state: "enabled", recoveryRemaining: 2 }),
+        ),
+        ...handlers,
+      ],
+    },
+  },
+};
+
+export const PasskeysUnsupported: StoryObj = {
+  name: "Passkeys / server has none",
+  render: signedIn(PasskeysScreen),
+  parameters: {
+    msw: {
+      handlers: [
+        http.get("*/xrpc/social.rocksky.auth.listPasskeys", () =>
+          HttpResponse.json(
+            { error: "MethodNotImplemented", message: "Endpoint is not implemented" },
+            { status: 501 },
+          ),
+        ),
         ...handlers,
       ],
     },
@@ -98,7 +113,12 @@ export const TwoFactorUnsupported: StoryObj = {
   parameters: {
     msw: {
       handlers: [
-        http.get("*/account/security", () => new HttpResponse(null, { status: 404 })),
+        http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
+          HttpResponse.json(
+            { error: "MethodNotImplemented", message: "Endpoint is not implemented" },
+            { status: 501 },
+          ),
+        ),
         ...handlers,
       ],
     },
@@ -110,7 +130,7 @@ export const Passkeys: StoryObj = {
   parameters: {
     msw: {
       handlers: [
-        http.get("*/account/passkeys", () =>
+        http.get("*/xrpc/social.rocksky.auth.listPasskeys", () =>
           HttpResponse.json({
             passkeys: [
               { id: "cred-1", name: "MacBook", createdAt: "2026-02-01T10:00:00Z" },

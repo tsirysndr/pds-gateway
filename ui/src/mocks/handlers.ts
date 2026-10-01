@@ -79,5 +79,51 @@ export const handlers = [
     }),
   ),
 
-  http.get("*/account/security", () => HttpResponse.json({ state: "disabled" })),
+  // social.rocksky.auth.*: the shared contract every PDS implements.
+  http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
+    HttpResponse.json({ state: "disabled", recoveryRemaining: 0 }),
+  ),
+
+  http.post("*/xrpc/social.rocksky.auth.beginTwoFactor", async ({ request }) => {
+    const body = (await request.json()) as { password?: string };
+    if (body.password !== "correct-horse") {
+      return HttpResponse.json(
+        { error: "InvalidCredentials", message: "Incorrect password" },
+        { status: 401 },
+      );
+    }
+    return HttpResponse.json({
+      state: "pending",
+      secret: "JBSWY3DPEHPK3PXP",
+      uri: "otpauth://totp/rocksky.social:alice.rocksky.social?secret=JBSWY3DPEHPK3PXP&issuer=rocksky.social",
+    });
+  }),
+
+  http.post("*/xrpc/social.rocksky.auth.confirmTwoFactor", async ({ request }) => {
+    const body = (await request.json()) as { code?: string };
+    if (body.code !== "123456") {
+      return HttpResponse.json(
+        { error: "InvalidCode", message: "That code is not valid" },
+        { status: 400 },
+      );
+    }
+    return HttpResponse.json({
+      state: "enabled",
+      recoveryCodes: ["AAAA-BBBB", "CCCC-DDDD"],
+    });
+  }),
+
+  http.post("*/xrpc/social.rocksky.auth.disableTwoFactor", () =>
+    HttpResponse.json({ state: "disabled" }),
+  ),
+
+  http.post("*/xrpc/social.rocksky.auth.regenerateRecoveryCodes", () =>
+    HttpResponse.json({ recoveryCodes: ["EEEE-FFFF"] }),
+  ),
+
+  http.get("*/xrpc/social.rocksky.auth.listPasskeys", () =>
+    HttpResponse.json({ passkeys: [] }),
+  ),
+
+  http.post("*/xrpc/social.rocksky.auth.deletePasskey", () => HttpResponse.json({})),
 ];
