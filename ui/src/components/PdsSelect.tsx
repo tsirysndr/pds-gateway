@@ -20,7 +20,7 @@ export function PdsSelect({ label = "Server" }: { label?: string }) {
 
   const options = servers.some((s) => s.url === pds)
     ? servers
-    : [...servers, { name: "detected", url: pds }];
+    : [...servers, { name: "", url: pds }];
 
   return (
     <Select
@@ -32,12 +32,10 @@ export function PdsSelect({ label = "Server" }: { label?: string }) {
         const next = Array.from(keys)[0];
         if (typeof next === "string") setPds(next);
       }}
-      description={hostOf(pds)}
     >
       {options.map((server) => (
         <SelectItem key={server.url} textValue={hostOf(server.url)}>
           {hostOf(server.url)}
-          {server.name ? ` · ${server.name}` : ""}
         </SelectItem>
       ))}
     </Select>
