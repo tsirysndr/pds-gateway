@@ -126,6 +126,7 @@ public_host = "rocksky.social"
 did = "did:web:rocksky.social"
 weight = 1
 accepts_signups = true
+signin_path = "/account/login"
 
 [[nodes]]
 name = "radxa"
@@ -134,6 +135,9 @@ public_host = "radxa.rocksky.social"
 did = "did:web:radxa.rocksky.social"
 weight = 2
 accepts_signups = true
+# This node runs atoll, which serves a sign-in page, so a browser sign-in for an
+# account here is redirected to it. Omit for a PDS with no frontend.
+signin_path = "/account/login"
 
 [[nodes]]
 name = "raspberrypi4"
@@ -152,3 +156,5 @@ weight = 1
 # A small board can host existing accounts without taking new ones.
 accepts_signups = false
 max_accounts = 200
+# No signin_path: this implementation serves no sign-in page, so the gateway
+# never sends a browser here. Its accounts sign in through the API.

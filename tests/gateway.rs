@@ -1101,3 +1101,60 @@ async fn an_api_login_with_a_known_handle_reaches_only_that_node() {
         "credentials were sent to nodes that do not host the account: {sprayed:?}"
     );
 }
+
+#[tokio::test]
+async fn a_node_with_no_signin_page_is_never_redirected_to() {
+    let primary = start_node(
+        "primary",
+        vec![hosted("alice.rocksky.social", "alice@example.com")],
+    )
+    .await;
+    let radxa = start_node(
+        "radxa",
+        vec![hosted("bob.rocksky.social", "bob@example.com")],
+    )
+    .await;
+    let h = harness(vec![primary, radxa], |config| {
+        // Not every PDS has a frontend: scala-pds and clojure-pds serve no
+        // sign-in page, so sending a browser there would land on a 404.
+        config.nodes[1].signin_path = None;
+    })
+    .await;
+
+    let (status, headers, _) = submit_login(&h, "bob.rocksky.social").await;
+
+    assert_ne!(
+        status, 303,
+        "must not redirect to a node with no sign-in page"
+    );
+    assert!(headers.get("location").is_none());
+    assert_eq!(
+        status, 401,
+        "the default node answers instead of a dead end"
+    );
+}
+
+#[tokio::test]
+async fn the_redirect_uses_the_nodes_own_signin_path() {
+    let primary = start_node(
+        "primary",
+        vec![hosted("alice.rocksky.social", "alice@example.com")],
+    )
+    .await;
+    let radxa = start_node(
+        "radxa",
+        vec![hosted("bob.rocksky.social", "bob@example.com")],
+    )
+    .await;
+    let h = harness(vec![primary, radxa], |config| {
+        config.nodes[1].signin_path = Some("/sign-in".to_owned());
+    })
+    .await;
+
+    let (status, headers, _) = submit_login(&h, "bob.rocksky.social").await;
+    assert_eq!(status, 303);
+    assert_eq!(
+        headers.get("location").unwrap().to_str().unwrap(),
+        "https://radxa.rocksky.social/sign-in?login_hint=bob.rocksky.social"
+    );
+}

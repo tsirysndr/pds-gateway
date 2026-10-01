@@ -174,8 +174,26 @@ sign-in for an account on the default node is proxied unchanged, and an
 identifier that resolves to nothing is left to the default node to answer, so
 neither case changes behaviour.
 
-Set `gateway.signin_redirect = false` to disable this, or
-`gateway.signin_paths` to match a frontend that uses different paths.
+A browser is only ever sent to a node that declares `signin_path`, because not
+every PDS has a frontend — of the implementations here only atoll serves
+`/account/login`, while clojure-pds and scala-pds have none. A node without it
+is left alone and the default node answers, rather than the user landing on a
+404 on another host. Accounts on such a node can still sign in through the API.
+
+```toml
+[[nodes]]
+name = "radxa"
+url = "https://radxa.rocksky.social"
+signin_path = "/account/login"   # has a frontend: sign-ins may be sent here
+
+[[nodes]]
+name = "raspberrypi4"
+url = "https://raspberrypi4.rocksky.social"
+# no signin_path: serves no sign-in page, so no browser is sent to it
+```
+
+Set `gateway.signin_redirect = false` to disable this entirely, or
+`gateway.signin_paths` to match a frontend that intercepts different paths.
 
 ## Account placement
 
@@ -276,6 +294,7 @@ did = "did:web:radxa.rocksky.social"   # lets the gateway route on a token's aud
 weight = 2
 accepts_signups = true
 max_accounts = 5000
+signin_path = "/account/login"         # omit when the PDS has no frontend
 ```
 
 For a node on the public internet the two hosts are the same, and `url` must be

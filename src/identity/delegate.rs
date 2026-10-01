@@ -200,6 +200,7 @@ mod tests {
             weight: 1,
             accepts_signups: true,
             max_accounts: None,
+            signin_path: None,
         }]
     }
 

@@ -53,7 +53,7 @@ pub async fn handle(
             node = %target.0,
             "redirecting sign-in to the account's own PDS"
         );
-        return Ok(redirect(&target.1, &path, identifier));
+        return Ok(redirect(&target.1, identifier));
     }
 
     let node = state.router.default_node();
@@ -92,6 +92,17 @@ async fn owning_node_host(
     let Some(config) = state.config.node(&node) else {
         return Ok(None);
     };
+
+    // Not every PDS has a frontend: clojure-pds and scala-pds serve no sign-in
+    // page, so a browser sent there would land on a 404. A node only receives
+    // sign-ins once it declares the path that serves them.
+    let Some(signin_path) = config.signin_path.clone() else {
+        tracing::debug!(
+            node = %node,
+            "account is on a node with no browser sign-in page; not redirecting"
+        );
+        return Ok(None);
+    };
     let host = config.effective_public_host();
 
     // A node that publishes our own hostname is reached through this gateway, so
@@ -100,14 +111,15 @@ async fn owning_node_host(
         return Ok(None);
     }
 
-    Ok(Some((node, host)))
+    Ok(Some((node, format!("{host}{signin_path}"))))
 }
 
-fn redirect(host: &str, path: &str, identifier: &str) -> Response {
+/// `target` is `<host><signin path>`, taken from the node's own configuration.
+fn redirect(target: &str, identifier: &str) -> Response {
     let hint = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("login_hint", identifier)
         .finish();
-    let location = format!("https://{host}{path}?{hint}");
+    let location = format!("https://{target}?{hint}");
 
     // 303 so the browser re-issues this as a GET: the password is not replayed
     // to another host, it is entered on the PDS that can verify it.
@@ -203,11 +215,7 @@ mod tests {
 
     #[test]
     fn builds_a_see_other_to_the_owning_pds() {
-        let response = redirect(
-            "radxa.rocksky.social",
-            "/account/login",
-            "alice@example.com",
-        );
+        let response = redirect("radxa.rocksky.social/account/login", "alice@example.com");
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
 
         let location = response

@@ -45,6 +45,12 @@ pub struct NodeConfig {
     pub accepts_signups: bool,
     #[serde(default)]
     pub max_accounts: Option<u64>,
+    /// Path to this node's own browser sign-in page, if it has one. A sign-in
+    /// for an account here is redirected to it. Unset means this PDS serves no
+    /// sign-in page, so a browser is never sent to it — not every
+    /// implementation has a frontend.
+    #[serde(default)]
+    pub signin_path: Option<String>,
 }
 
 fn one() -> u32 {
@@ -535,6 +541,7 @@ fn parse_nodes_env(raw: &str) -> Result<Vec<NodeConfig>, ConfigError> {
             },
             accepts_signups: field(4).and_then(parse_bool).unwrap_or(true),
             max_accounts: None,
+            signin_path: field(6).map(str::to_owned),
         });
     }
 
@@ -785,6 +792,13 @@ impl Config {
 
         for node in &mut self.nodes {
             node.name = node.name.trim().to_ascii_lowercase();
+            if let Some(path) = &mut node.signin_path {
+                *path = path.trim().to_owned();
+                if !path.starts_with('/') {
+                    path.insert(0, '/');
+                }
+            }
+            node.signin_path = node.signin_path.take().filter(|p| p.len() > 1);
             if let Some(host) = &mut node.public_host {
                 *host = host.trim().to_ascii_lowercase();
             }
@@ -973,6 +987,7 @@ mod tests {
             weight: 1,
             accepts_signups: true,
             max_accounts: None,
+            signin_path: None,
         }
     }
 

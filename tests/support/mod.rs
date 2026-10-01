@@ -537,6 +537,9 @@ pub async fn harness(nodes: Vec<StubNode>, tweak: impl FnOnce(&mut Config)) -> H
             weight: 1,
             accepts_signups: true,
             max_accounts: None,
+            // Every stub serves /account/login; a node without one is covered by
+            // its own test.
+            signin_path: Some("/account/login".to_owned()),
         })
         .collect();
 
