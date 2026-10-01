@@ -407,6 +407,33 @@ namespace. The nodes' own names (`radxa.rocksky.social` and friends) are A/AAAA
 records pointing at the nodes themselves, and must not fall under the wildcard's
 behaviour, so declare them explicitly.
 
+### Passkeys need one relying party across the fleet
+
+A credential is bound to its WebAuthn relying party for life, and a browser will
+only use one whose RP ID equals the page's own domain or is a *parent* of it. A
+node left to its own hostname therefore issues credentials the console in front
+of it can never use: from `rocksky.social`, an RP ID of `radxa.rocksky.social`
+is a child, and the browser refuses it with "the relying party ID is not a
+registrable domain suffix of, nor equal to the current domain". Point every node
+at the shared parent, which is valid both from the console and from the node's
+own pages:
+
+```sh
+# atoll
+ATOLL_WEBAUTHN_RP_ID=rocksky.social
+ATOLL_WEBAUTHN_ORIGINS=https://rocksky.social
+# clojure-pds, scala-pds
+PDS_WEBAUTHN_RP_ID=rocksky.social
+PDS_WEBAUTHN_ORIGINS=https://rocksky.social
+```
+
+Each implementation refuses a value that is not its own host or a parent of it,
+so a node cannot claim credentials for a domain it does not answer for. The
+origins setting is separate because `clientDataJSON` carries the *page's* origin,
+not the server's, and the console is a different origin from the node. Changing
+the RP ID orphans credentials registered under the old one, which have to be
+registered again.
+
 Each node keeps its own signing keys and its own session secrets. The gateway
 never holds account credentials.
 
