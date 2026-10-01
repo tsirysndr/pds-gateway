@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "social.rocksky.auth.beginPasskeyRegistration",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Starts a WebAuthn registration ceremony. The server holds the challenge against `requestId` until the ceremony finishes or expires.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "A label for the credential, shown in the passkey list."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["requestId", "publicKey"],
+          "properties": {
+            "requestId": {
+              "type": "string",
+              "description": "Opaque handle for this ceremony, returned to finishPasskeyRegistration."
+            },
+            "publicKey": {
+              "type": "unknown",
+              "description": "PublicKeyCredentialCreationOptions as WebAuthn JSON: binary fields base64url-encoded, for navigator.credentials.create()."
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "NotSupported" }, { "name": "RateLimited" }]
+    }
+  }
+}
