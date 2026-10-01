@@ -602,6 +602,7 @@ not take any route away:
 | `/_gateway`, `/_gateway/health`, `/_gateway/metrics`, `/_gateway/admin/*` | the gateway |
 | `/_gateway/pds` | the gateway (fleet list for the console) |
 | `/console` (`ui.mount`) | the bundled console, compiled into the binary |
+| `/xrpc/social.rocksky.auth.*` | routed to the account's node like any XRPC method |
 | everything else — `/`, `/oauth/*`, `/health`, `/metrics`, `/.well-known/did.json`, assets | passed through |
 
 Gateway status lives under `/_gateway/` precisely so it cannot shadow a route the
