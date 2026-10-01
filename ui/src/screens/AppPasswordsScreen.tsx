@@ -1,3 +1,4 @@
+import { formatWhen } from "../lib/when";
 import { useState } from "react";
 import {
   Button,
@@ -112,7 +113,7 @@ export function AppPasswordsScreen() {
                 <TableRow key={item.name}>
                   <TableCell>{item.name}</TableCell>
                   <TableCell className="text-foreground-500">
-                    {new Date(item.createdAt).toLocaleString()}
+                    {formatWhen(item.createdAt) ?? "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button

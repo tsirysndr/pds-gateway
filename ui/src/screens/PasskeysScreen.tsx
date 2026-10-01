@@ -1,3 +1,4 @@
+import { formatWhen } from "../lib/when";
 import { useState } from "react";
 import {
   Button,
@@ -183,9 +184,7 @@ export function PasskeysScreen() {
                 <TableRow key={item.id}>
                   <TableCell>{item.name ?? item.id.slice(0, 12)}</TableCell>
                   <TableCell className="text-foreground-500">
-                    {item.createdAt
-                      ? new Date(item.createdAt).toLocaleString()
-                      : "—"}
+                    {formatWhen(item.createdAt) ?? "—"}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
