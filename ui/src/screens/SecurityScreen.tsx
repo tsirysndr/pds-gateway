@@ -10,6 +10,7 @@ import {
 } from "@heroui/react";
 import { QRCodeSVG } from "qrcode.react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,13 +28,15 @@ import {
   type Enrollment,
 } from "../lib/security";
 
-const passwordOnly = z.object({ password: z.string().min(1, "Enter your password") });
-const codeOnly = z.object({
-  code: z.string().trim().length(6, "Six digits from your authenticator"),
-});
-const passwordAndCode = passwordOnly.extend(codeOnly.shape);
+const passwordOnly = (t: (key: string) => string) =>
+  z.object({ password: z.string().min(1, t("security.errorPasswordRequired")) });
+const codeOnly = (t: (key: string) => string) =>
+  z.object({ code: z.string().trim().length(6, t("security.errorCodeLength")) });
+const passwordAndCode = (t: (key: string) => string) =>
+  passwordOnly(t).extend(codeOnly(t).shape);
 
 export function SecurityScreen() {
+  const { t } = useTranslation();
   const client = useClient();
   const queries = useQueryClient();
   const [enrolling, setEnrolling] = useState<Enrollment | null>(null);
@@ -47,10 +50,10 @@ export function SecurityScreen() {
   const state = enrolling?.state ?? status.data?.state ?? "disabled";
   const badge =
     state === "enabled"
-      ? { Icon: IconShieldCheck, label: "On", color: "success" as const }
+      ? { Icon: IconShieldCheck, label: t("security.statusOn"), color: "success" as const }
       : state === "pending"
-        ? { Icon: IconShieldOff, label: "Finish setup", color: "warning" as const }
-        : { Icon: IconShieldOff, label: "Off", color: "default" as const };
+        ? { Icon: IconShieldOff, label: t("security.statusFinishSetup"), color: "warning" as const }
+        : { Icon: IconShieldOff, label: t("security.statusOff"), color: "default" as const };
 
   const refresh = () => queries.invalidateQueries({ queryKey: ["totp", client.base] });
 
@@ -66,7 +69,7 @@ export function SecurityScreen() {
     },
   });
   const disable = useMutation({
-    mutationFn: (values: z.infer<typeof passwordAndCode>) =>
+    mutationFn: (values: z.infer<ReturnType<typeof passwordAndCode>>) =>
       disableTotp(client, values.password, values.code),
     onSuccess: () => {
       setEnrolling(null);
@@ -74,7 +77,7 @@ export function SecurityScreen() {
     },
   });
   const recovery = useMutation({
-    mutationFn: (values: z.infer<typeof passwordAndCode>) =>
+    mutationFn: (values: z.infer<ReturnType<typeof passwordAndCode>>) =>
       regenerateRecovery(client, values.password, values.code),
   });
 
@@ -82,13 +85,12 @@ export function SecurityScreen() {
     return (
       <Card shadow="none" className="border border-default-200">
         <CardHeader>
-          <h2 className="text-lg font-semibold">Two-factor authentication</h2>
+          <h2 className="text-lg font-semibold">{t("security.title")}</h2>
         </CardHeader>
         <CardBody>
           <Alert tone="info">
-            This server does not implement <code>social.rocksky.auth</code>.
-            Two-factor is a server feature rather than part of the atproto
-            lexicon, so it is only available where the PDS offers it.
+            {t("security.notImplementedBefore")} <code>social.rocksky.auth</code>.{" "}
+            {t("security.notImplementedAfter")}
           </Alert>
         </CardBody>
       </Card>
@@ -100,10 +102,8 @@ export function SecurityScreen() {
       <Card shadow="none" className="border border-default-200">
         <CardHeader className="items-center justify-between">
           <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold">Two-factor authentication</h2>
-            <p className="text-sm text-foreground-500">
-              A code from your authenticator, on top of your password.
-            </p>
+            <h2 className="text-lg font-semibold">{t("security.title")}</h2>
+            <p className="text-sm text-foreground-500">{t("security.subtitle")}</p>
           </div>
           <Chip
             color={badge.color}
@@ -117,7 +117,7 @@ export function SecurityScreen() {
         <CardBody className="gap-4">
           {state === "disabled" && (
             <PasswordForm
-              label="Set up"
+              label={t("security.setUp")}
               isPending={begin.isPending}
               error={begin.error}
               onSubmit={(values) => begin.mutate(values.password)}
@@ -126,17 +126,13 @@ export function SecurityScreen() {
 
           {enrolling?.uri && (
             <div className="flex flex-col items-start gap-3">
-              <p className="text-sm">
-                Scan this with your authenticator, then enter the code it shows.
-              </p>
+              <p className="text-sm">{t("security.scanThis")}</p>
               <div className="rounded-medium bg-white p-3">
                 <QRCodeSVG value={enrolling.uri} size={168} />
               </div>
               {enrolling.secret && (
                 <div className="w-full">
-                  <p className="mb-1 text-xs text-foreground-500">
-                    Or enter this secret by hand
-                  </p>
+                  <p className="mb-1 text-xs text-foreground-500">{t("security.orSecret")}</p>
                   <Snippet size="sm" hideSymbol className="w-full overflow-x-auto">
                     {enrolling.secret}
                   </Snippet>
@@ -146,17 +142,14 @@ export function SecurityScreen() {
           )}
 
           {state === "pending" && !enrolling && (
-            <Alert tone="info" title="Setup was started but not finished">
-              The secret is shown once and the server never returns it again, so
-              the code below cannot be displayed a second time. Enter the code
-              from your authenticator if you already scanned it, or start again
-              for a fresh one.
+            <Alert tone="info" title={t("security.pendingTitle")}>
+              {t("security.pendingBody")}
             </Alert>
           )}
 
           {(state === "pending" || enrolling) && (
             <CodeForm
-              label="Confirm"
+              label={t("security.confirm")}
               isPending={confirm.isPending}
               error={confirm.error}
               onSubmit={(values) => confirm.mutate(values.code)}
@@ -166,13 +159,10 @@ export function SecurityScreen() {
           {state === "pending" && !enrolling && (
             <>
               <Divider />
-              <p className="text-sm font-medium">Start again</p>
-              <p className="text-sm text-foreground-500">
-                Replaces the pending secret with a new one. Nothing is enabled
-                until you confirm it, so this cannot lock you out.
-              </p>
+              <p className="text-sm font-medium">{t("security.startAgain")}</p>
+              <p className="text-sm text-foreground-500">{t("security.startAgainBody")}</p>
               <PasswordForm
-                label="Get a new QR code"
+                label={t("security.newQr")}
                 isPending={begin.isPending}
                 error={begin.error}
                 onSubmit={(values) => begin.mutate(values.password)}
@@ -183,15 +173,15 @@ export function SecurityScreen() {
           {state === "enabled" && (
             <>
               <Divider />
-              <p className="text-sm font-medium">Recovery codes</p>
+              <p className="text-sm font-medium">{t("security.recoveryCodes")}</p>
               <PasswordCodeForm
-                label="Generate new codes"
+                label={t("security.generateCodes")}
                 isPending={recovery.isPending}
                 error={recovery.error}
                 onSubmit={(values) => recovery.mutate(values)}
               />
               {recovery.data?.recoveryCodes && (
-                <Alert tone="success" title="Store these somewhere safe">
+                <Alert tone="success" title={t("security.codesTitle")}>
                   <div className="mt-1 grid grid-cols-2 gap-1 font-mono text-xs">
                     {recovery.data.recoveryCodes.map((code) => (
                       <span key={code}>{code}</span>
@@ -201,9 +191,9 @@ export function SecurityScreen() {
               )}
 
               <Divider />
-              <p className="text-sm font-medium">Turn off</p>
+              <p className="text-sm font-medium">{t("security.turnOff")}</p>
               <PasswordCodeForm
-                label="Disable"
+                label={t("security.disable")}
                 color="danger"
                 isPending={disable.isPending}
                 error={disable.error}
@@ -226,16 +216,17 @@ function PasswordForm({
   label: string;
   isPending: boolean;
   error: unknown;
-  onSubmit: (values: z.infer<typeof passwordOnly>) => void;
+  onSubmit: (values: z.infer<ReturnType<typeof passwordOnly>>) => void;
 }) {
-  const form = useForm<z.infer<typeof passwordOnly>>({
-    resolver: zodResolver(passwordOnly),
+  const { t } = useTranslation();
+  const form = useForm<z.infer<ReturnType<typeof passwordOnly>>>({
+    resolver: zodResolver(passwordOnly(t)),
     defaultValues: { password: "" },
   });
   return (
     <form className="flex flex-col gap-3" onSubmit={form.handleSubmit(onSubmit)}>
       <Field
-        label="Password"
+        label={t("common.password")}
         type="password"
         autoComplete="current-password"
         error={form.formState.errors.password}
@@ -258,19 +249,20 @@ function CodeForm({
   label: string;
   isPending: boolean;
   error: unknown;
-  onSubmit: (values: z.infer<typeof codeOnly>) => void;
+  onSubmit: (values: z.infer<ReturnType<typeof codeOnly>>) => void;
 }) {
-  const form = useForm<z.infer<typeof codeOnly>>({
-    resolver: zodResolver(codeOnly),
+  const { t } = useTranslation();
+  const form = useForm<z.infer<ReturnType<typeof codeOnly>>>({
+    resolver: zodResolver(codeOnly(t)),
     defaultValues: { code: "" },
   });
   return (
     <form className="flex flex-col gap-3" onSubmit={form.handleSubmit(onSubmit)}>
       <Field
-        label="Code"
+        label={t("login.factorLabel")}
         inputMode="numeric"
         autoComplete="one-time-code"
-        placeholder="123456"
+        placeholder={t("login.factorPlaceholder")}
         error={form.formState.errors.code}
         {...form.register("code")}
       />
@@ -293,10 +285,11 @@ function PasswordCodeForm({
   color?: "primary" | "danger";
   isPending: boolean;
   error: unknown;
-  onSubmit: (values: z.infer<typeof passwordAndCode>) => void;
+  onSubmit: (values: z.infer<ReturnType<typeof passwordAndCode>>) => void;
 }) {
-  const form = useForm<z.infer<typeof passwordAndCode>>({
-    resolver: zodResolver(passwordAndCode),
+  const { t } = useTranslation();
+  const form = useForm<z.infer<ReturnType<typeof passwordAndCode>>>({
+    resolver: zodResolver(passwordAndCode(t)),
     defaultValues: { password: "", code: "" },
   });
   return (
@@ -304,7 +297,7 @@ function PasswordCodeForm({
       <div className="flex flex-col gap-3 sm:flex-row">
         <Field
           className="sm:flex-1"
-          label="Password"
+          label={t("common.password")}
           type="password"
           autoComplete="current-password"
           error={form.formState.errors.password}
@@ -312,7 +305,7 @@ function PasswordCodeForm({
         />
         <Field
           className="sm:w-40"
-          label="Code"
+          label={t("login.factorLabel")}
           inputMode="numeric"
           autoComplete="one-time-code"
           error={form.formState.errors.code}

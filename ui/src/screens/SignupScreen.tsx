@@ -1,5 +1,6 @@
 import { Button, Divider, Link } from "@heroui/react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -15,24 +16,26 @@ import { describeServer } from "../lib/servers";
 import { createClient } from "../lib/xrpc";
 import type { Session } from "../lib/types";
 
-const schema = z
-  .object({
-    handle: z.string().trim().min(1, "Choose a handle"),
-    email: z.string().trim().email("Enter a valid email"),
-    password: z.string().min(8, "Use at least 8 characters"),
-    confirmPassword: z.string().min(1, "Repeat your password"),
-    inviteCode: z.string().trim().optional(),
-  })
-  // A typo in a password you cannot see locks you out of a new account, and
-  // there is nothing to recover from yet.
-  .refine((values) => values.password === values.confirmPassword, {
-    path: ["confirmPassword"],
-    message: "Both passwords must match",
-  });
+const makeSchema = (t: (key: string) => string) =>
+  z
+    .object({
+      handle: z.string().trim().min(1, t("signup.errorHandle")),
+      email: z.string().trim().email(t("signup.errorEmail")),
+      password: z.string().min(8, t("signup.errorPasswordLength")),
+      confirmPassword: z.string().min(1, t("signup.errorConfirmRequired")),
+      inviteCode: z.string().trim().optional(),
+    })
+    // A typo in a password you cannot see locks you out of a new account, and
+    // there is nothing to recover from yet.
+    .refine((values) => values.password === values.confirmPassword, {
+      path: ["confirmPassword"],
+      message: t("signup.errorConfirmMatch"),
+    });
 
-type Values = z.infer<typeof schema>;
+type Values = z.infer<ReturnType<typeof makeSchema>>;
 
 export function SignupScreen() {
+  const { t } = useTranslation();
   const pds = useAtomValue(pdsUrlAtom);
   const setSession = useSetAtom(sessionAtom);
 
@@ -44,7 +47,7 @@ export function SignupScreen() {
   const domain = server?.availableUserDomains?.[0] ?? "";
 
   const form = useForm<Values>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(makeSchema(t)),
     defaultValues: {
       handle: "",
       email: "",
@@ -71,11 +74,11 @@ export function SignupScreen() {
 
   return (
     <AuthCard
-      title="Create account"
-      subtitle={domain ? `Handles end in ${domain}` : undefined}
+      title={t("signup.title")}
+      subtitle={domain ? t("signup.handlesEndIn", { domain }) : undefined}
       footer={
         <>
-          Already have one? <Link href="#/login" size="sm">Sign in</Link>
+          {t("signup.alreadyHaveOne")} <Link href="#/login" size="sm">{t("common.signIn")}</Link>
         </>
       }
     >
@@ -84,8 +87,8 @@ export function SignupScreen() {
         onSubmit={form.handleSubmit((values) => create.mutate(values))}
       >
         <HandleField
-          label="Handle"
-          placeholder="alice"
+          label={t("common.handle")}
+          placeholder={t("signup.handlePlaceholder")}
           endContent={
             domain && <span className="text-small text-default-400">{domain}</span>
           }
@@ -93,27 +96,27 @@ export function SignupScreen() {
           {...form.register("handle")}
         />
         <Field
-          label="Email"
+          label={t("common.email")}
           type="email"
           autoComplete="email"
           error={form.formState.errors.email}
           {...form.register("email")}
         />
         <PasswordField
-          label="Password"
+          label={t("common.password")}
           autoComplete="new-password"
           error={form.formState.errors.password}
           {...form.register("password")}
         />
         <PasswordField
-          label="Confirm password"
+          label={t("signup.confirmPassword")}
           autoComplete="new-password"
           error={form.formState.errors.confirmPassword}
           {...form.register("confirmPassword")}
         />
         {server?.inviteCodeRequired && (
           <Field
-            label="Invite code"
+            label={t("signup.inviteCode")}
             error={form.formState.errors.inviteCode}
             {...form.register("inviteCode")}
           />
@@ -122,17 +125,16 @@ export function SignupScreen() {
         {create.error && <ErrorAlert error={create.error} />}
 
         <Button type="submit" color="primary" isLoading={create.isPending} fullWidth>
-          Create account
+          {t("signup.title")}
         </Button>
       </form>
 
       <Divider />
 
       <div className="flex flex-col gap-2">
-        <PdsSelect label="Create on" />
+        <PdsSelect label={t("signup.createOn")} />
         <Alert tone="info">
-          The server places your repository; your handle works across the whole
-          namespace either way.
+          {t("signup.placement")}
         </Alert>
       </div>
     </AuthCard>

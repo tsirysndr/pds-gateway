@@ -1,5 +1,6 @@
 import { Card, CardBody, CardHeader } from "@heroui/react";
 import { AuthBackdrop } from "./AuthBackdrop";
+import { LanguageSelect } from "./LanguageSelect";
 
 export function AuthCard({
   title,
@@ -30,6 +31,9 @@ export function AuthCard({
             {footer}
           </div>
         )}
+        <div className="flex justify-center">
+          <LanguageSelect />
+        </div>
       </div>
     </>
   );

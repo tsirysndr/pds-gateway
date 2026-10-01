@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@heroui/react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,20 +34,22 @@ import {
 
 /// Adding a passkey adds a way to sign in, so it takes the password — an access
 /// token proves the session, not the owner.
-const schema = z.object({
-  name: z.string().trim().max(64, "Keep the name under 64 characters").optional(),
-  password: z.string().min(1, "Enter your password"),
+const makeSchema = (t: (key: string) => string) =>
+  z.object({
+  name: z.string().trim().max(64, t("passkeys.errorName")).optional(),
+  password: z.string().min(1, t("security.errorPasswordRequired")),
   code: z.string().trim().optional(),
 });
 
 export function PasskeysScreen() {
+  const { t } = useTranslation();
   const client = useClient();
   const queries = useQueryClient();
   const supported = passkeysAvailable();
   const [added, setAdded] = useState<string | null>(null);
 
-  const form = useForm<z.infer<typeof schema>>({
-    resolver: zodResolver(schema),
+  const form = useForm<z.infer<ReturnType<typeof makeSchema>>>({
+    resolver: zodResolver(makeSchema(t)),
     defaultValues: { name: "", password: "", code: "" },
   });
 
@@ -57,7 +60,7 @@ export function PasskeysScreen() {
   });
 
   const register = useMutation({
-    mutationFn: async (values: z.infer<typeof schema>) => {
+    mutationFn: async (values: z.infer<ReturnType<typeof makeSchema>>) => {
       const started = await beginPasskeyRegistration(client, {
         password: values.password,
         code: values.code || undefined,
@@ -67,7 +70,7 @@ export function PasskeysScreen() {
       const credential = (await navigator.credentials.create({
         publicKey: toPublicKey(started.publicKey),
       })) as PublicKeyCredential | null;
-      if (!credential) throw new Error("No passkey was created.");
+      if (!credential) throw new Error(t("passkeys.noneCreated"));
 
       return finishPasskeyRegistration(client, {
         requestId: started.requestId,
@@ -92,13 +95,12 @@ export function PasskeysScreen() {
     return (
       <Card shadow="none" className="border border-default-200">
         <CardHeader>
-          <h2 className="text-lg font-semibold">Passkeys</h2>
+          <h2 className="text-lg font-semibold">{t("passkeys.title")}</h2>
         </CardHeader>
         <CardBody>
           <Alert tone="info">
-            This server does not implement <code>social.rocksky.auth</code>.
-            Like two-factor, passkeys are a server feature rather than part of
-            the atproto lexicon.
+            {t("security.notImplementedBefore")} <code>social.rocksky.auth</code>.{" "}
+            {t("passkeys.notImplementedAfter")}
           </Alert>
         </CardBody>
       </Card>
@@ -109,14 +111,12 @@ export function PasskeysScreen() {
     <div className="flex flex-col gap-4">
       <Card shadow="none" className="border border-default-200">
         <CardHeader className="flex-col items-start gap-1">
-          <h2 className="text-lg font-semibold">Passkeys</h2>
-          <p className="text-sm text-foreground-500">
-            Sign in with your device instead of a password.
-          </p>
+          <h2 className="text-lg font-semibold">{t("passkeys.title")}</h2>
+          <p className="text-sm text-foreground-500">{t("passkeys.subtitle")}</p>
         </CardHeader>
         <CardBody className="gap-3">
           {!supported && (
-            <Alert tone="info">This browser does not support passkeys.</Alert>
+            <Alert tone="info">{t("passkeys.unsupported")}</Alert>
           )}
 
           <form
@@ -126,14 +126,14 @@ export function PasskeysScreen() {
             <div className="flex flex-col gap-3 sm:flex-row">
               <Field
                 className="sm:flex-1"
-                label="Name"
-                placeholder="MacBook"
+                label={t("common.name")}
+                placeholder={t("passkeys.namePlaceholder")}
                 error={form.formState.errors.name}
                 {...form.register("name")}
               />
               <Field
                 className="sm:flex-1"
-                label="Password"
+                label={t("common.password")}
                 type="password"
                 autoComplete="current-password"
                 error={form.formState.errors.password}
@@ -141,8 +141,8 @@ export function PasskeysScreen() {
               />
               <Field
                 className="sm:w-36"
-                label="Code"
-                description="If two-factor is on"
+                label={t("login.factorLabel")}
+                description={t("passkeys.codeDescription")}
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 error={form.formState.errors.code}
@@ -157,11 +157,11 @@ export function PasskeysScreen() {
               isDisabled={!supported}
               isLoading={register.isPending}
             >
-              Add passkey
+              {t("passkeys.add")}
             </Button>
           </form>
 
-          {added && <Alert tone="success">Added {added}.</Alert>}
+          {added && <Alert tone="success">{t("passkeys.added", { name: added })}</Alert>}
           {register.error ? <ErrorAlert error={register.error} /> : null}
         </CardBody>
       </Card>
@@ -169,15 +169,15 @@ export function PasskeysScreen() {
       <Card shadow="none" className="border border-default-200">
         <CardBody className="gap-3">
           {list.error ? <ErrorAlert error={list.error} /> : null}
-          <Table aria-label="Passkeys" removeWrapper>
+          <Table aria-label={t("passkeys.title")} removeWrapper>
             <TableHeader>
-              <TableColumn>NAME</TableColumn>
-              <TableColumn>ADDED</TableColumn>
+              <TableColumn>{t("passkeys.columnName")}</TableColumn>
+              <TableColumn>{t("passkeys.columnAdded")}</TableColumn>
               <TableColumn> </TableColumn>
             </TableHeader>
             <TableBody
               isLoading={list.isPending}
-              emptyContent="No passkeys yet."
+              emptyContent={t("passkeys.empty")}
               items={list.data ?? []}
             >
               {(item) => (
@@ -197,14 +197,14 @@ export function PasskeysScreen() {
                         const password = form.getValues("password");
                         if (!password) {
                           form.setError("password", {
-                            message: "Enter your password to remove a passkey",
+                            message: t("passkeys.errorRemovePassword"),
                           });
                           return;
                         }
                         remove.mutate({ id: item.id, password });
                       }}
                     >
-                      Remove
+                      {t("common.remove")}
                     </Button>
                   </TableCell>
                 </TableRow>

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Card, CardBody, CardHeader, Code, Snippet } from "@heroui/react";
 import { useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
@@ -7,6 +8,7 @@ import { Alert, ErrorAlert } from "../components/Alert";
 import { describeServer } from "../lib/servers";
 
 export function SettingsScreen() {
+  const { t } = useTranslation();
   const pds = useAtomValue(pdsUrlAtom);
   const { data, error } = useQuery({
     queryKey: ["describeServer", pds],
@@ -17,10 +19,8 @@ export function SettingsScreen() {
     <div className="flex flex-col gap-4">
       <Card shadow="none" className="border border-default-200">
         <CardHeader className="flex-col items-start gap-1">
-          <h2 className="text-lg font-semibold">Server</h2>
-          <p className="text-sm text-foreground-500">
-            Every request goes to this server.
-          </p>
+          <h2 className="text-lg font-semibold">{t("settings.serverTitle")}</h2>
+          <p className="text-sm text-foreground-500">{t("settings.serverSubtitle")}</p>
         </CardHeader>
         <CardBody className="gap-3">
           <PdsSelect />
@@ -28,31 +28,30 @@ export function SettingsScreen() {
             {pds}
           </Snippet>
           <Alert tone="info">
-            Choosing a server here overrides the one detected from your handle.
-            Sign in again to let detection pick it for you.
+            {t("settings.overrideNote")}
           </Alert>
         </CardBody>
       </Card>
 
       <Card shadow="none" className="border border-default-200">
         <CardHeader>
-          <h3 className="font-medium">What it reports</h3>
+          <h3 className="font-medium">{t("settings.reportsTitle")}</h3>
         </CardHeader>
         <CardBody className="gap-2 text-sm">
           {error && <ErrorAlert error={error} />}
-          <Row label="DID">{data?.did ? <Code size="sm">{data.did}</Code> : "—"}</Row>
-          <Row label="Handle domains">
+          <Row label={t("settings.did")}>{data?.did ? <Code size="sm">{data.did}</Code> : "—"}</Row>
+          <Row label={t("settings.handleDomains")}>
             {data?.availableUserDomains?.join(", ") ?? "—"}
           </Row>
-          <Row label="Invite required">
-            {data?.inviteCodeRequired ? "yes" : "no"}
+          <Row label={t("settings.inviteRequired")}>
+            {data?.inviteCodeRequired ? t("settings.yes") : t("settings.no")}
           </Row>
-          <Row label="Blob limit">
+          <Row label={t("settings.blobLimit")}>
             {data?.blobUploadLimit
               ? `${Math.round(data.blobUploadLimit / 1024 / 1024)} MB`
               : "—"}
           </Row>
-          <Row label="Contact">{data?.contact?.email ?? "—"}</Row>
+          <Row label={t("settings.contact")}>{data?.contact?.email ?? "—"}</Row>
         </CardBody>
       </Card>
     </div>

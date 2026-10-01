@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import {
   Accordion,
@@ -18,6 +19,7 @@ import { Alert, ErrorAlert } from "../components/Alert";
 import { useRecords, useRepo } from "../lib/api";
 
 export function RepoScreen() {
+  const { t } = useTranslation();
   const session = useAtomValue(sessionAtom);
   const repo = session?.did;
   const [collection, setCollection] = useState<string | undefined>();
@@ -31,23 +33,23 @@ export function RepoScreen() {
     <div className="flex flex-col gap-4">
       <Card shadow="none" className="border border-default-200">
         <CardHeader className="flex-col items-start gap-1">
-          <h2 className="text-lg font-semibold">Repository</h2>
+          <h2 className="text-lg font-semibold">{t("repo.title")}</h2>
           <Code size="sm">{repo}</Code>
         </CardHeader>
         <CardBody className="gap-3">
           {description.isPending && (
-            <Progress isIndeterminate aria-label="Loading" size="sm" />
+            <Progress isIndeterminate aria-label={t("repo.loading")} size="sm" />
           )}
           {description.error ? <ErrorAlert error={description.error} /> : null}
 
           {description.data && (
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Chip size="sm" variant="flat">
-                {collections.length} collections
+                {t("repo.collections", { count: collections.length })}
               </Chip>
               {description.data.handleIsCorrect === false && (
                 <Chip size="sm" color="warning" variant="flat">
-                  handle does not resolve back
+                  {t("repo.handleBroken")}
                 </Chip>
               )}
             </div>
@@ -55,7 +57,7 @@ export function RepoScreen() {
 
           {collections.length > 0 && (
             <Select
-              label="Collection"
+              label={t("repo.collection")}
               variant="bordered"
               selectedKeys={selected ? [selected] : []}
               disallowEmptySelection
@@ -75,13 +77,13 @@ export function RepoScreen() {
       <Card shadow="none" className="border border-default-200">
         <CardBody className="gap-3">
           {records.isPending && selected && (
-            <Progress isIndeterminate aria-label="Loading records" size="sm" />
+            <Progress isIndeterminate aria-label={t("repo.loadingRecords")} size="sm" />
           )}
           {records.error ? <ErrorAlert error={records.error} /> : null}
-          {!selected && <Alert tone="info">This repository has no collections.</Alert>}
+          {!selected && <Alert tone="info">{t("repo.noCollections")}</Alert>}
 
           {records.data && records.data.records.length === 0 && (
-            <Alert tone="info">No records in {selected}.</Alert>
+            <Alert tone="info">{t("repo.noRecords", { collection: selected })}</Alert>
           )}
 
           {records.data && records.data.records.length > 0 && (

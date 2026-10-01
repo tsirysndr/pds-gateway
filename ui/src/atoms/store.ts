@@ -39,3 +39,7 @@ export const lastHandleAtom = atomWithStorage<string>(
 export const accessTokenAtom = atom((get) => get(sessionAtom)?.accessJwt);
 
 export const isSignedInAtom = atom((get) => get(sessionAtom) !== null);
+
+/// The chosen language, remembered per browser. Empty until chosen, so the
+/// browser's own preference wins on a first visit.
+export const languageAtom = atomWithStorage<string>("pdsgw.language", "");

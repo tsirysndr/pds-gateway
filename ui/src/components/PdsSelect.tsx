@@ -2,6 +2,7 @@ import { Select, SelectItem } from "@heroui/react";
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 import { pdsUrlAtom } from "../atoms/store";
+import { useTranslation } from "react-i18next";
 import { fetchKnownServers, hostOf } from "../lib/servers";
 
 /// Picks which PDS the app talks to.
@@ -9,8 +10,10 @@ import { fetchKnownServers, hostOf } from "../lib/servers";
 /// The list comes from the gateway, so it names the fleet without hardcoding it.
 /// A server the user reached by detection but that is not in the list is added,
 /// so the current selection is always visible.
-export function PdsSelect({ label = "Server" }: { label?: string }) {
+export function PdsSelect({ label }: { label?: string }) {
   const [pds, setPds] = useAtom(pdsUrlAtom);
+  const { t } = useTranslation();
+  const shown = label ?? t("common.server");
 
   const { data: servers = [] } = useQuery({
     queryKey: ["knownServers"],
@@ -24,7 +27,7 @@ export function PdsSelect({ label = "Server" }: { label?: string }) {
 
   return (
     <Select
-      label={label}
+      label={shown}
       variant="bordered"
       selectedKeys={[pds]}
       disallowEmptySelection

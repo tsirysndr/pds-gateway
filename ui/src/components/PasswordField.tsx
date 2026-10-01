@@ -3,6 +3,7 @@ import { Button, Input } from "@heroui/react";
 import { IconEye, IconEyeOff, IconLock } from "@tabler/icons-react";
 import type { ComponentProps } from "react";
 import type { FieldError } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 
 type Props = Omit<ComponentProps<typeof Input>, "type"> & { error?: FieldError };
 
@@ -12,6 +13,7 @@ type Props = Omit<ComponentProps<typeof Input>, "type"> & { error?: FieldError }
 /// never left visible on a screen the owner walked away from.
 export function PasswordField({ error, ...props }: Props) {
   const [visible, setVisible] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <Input
@@ -28,7 +30,7 @@ export function PasswordField({ error, ...props }: Props) {
           size="sm"
           variant="light"
           tabIndex={-1}
-          aria-label={visible ? "Hide password" : "Show password"}
+          aria-label={visible ? t("common.hidePassword") : t("common.showPassword")}
           onPress={() => setVisible((shown) => !shown)}
         >
           {visible ? (

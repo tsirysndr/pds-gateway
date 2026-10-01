@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Card,
   CardBody,
@@ -10,23 +11,22 @@ import { Alert, ErrorAlert } from "../components/Alert";
 import { useInviteCodes } from "../lib/api";
 
 export function InvitesScreen() {
+  const { t } = useTranslation();
   const { data, error, isPending } = useInviteCodes();
   const codes = data?.codes ?? [];
 
   return (
     <Card shadow="none" className="border border-default-200">
       <CardHeader className="flex-col items-start gap-1">
-        <h2 className="text-lg font-semibold">Invite codes</h2>
-        <p className="text-sm text-foreground-500">
-          Codes issued to your account by this server.
-        </p>
+        <h2 className="text-lg font-semibold">{t("invites.title")}</h2>
+        <p className="text-sm text-foreground-500">{t("invites.subtitle")}</p>
       </CardHeader>
       <CardBody className="gap-3">
-        {isPending && <Progress isIndeterminate aria-label="Loading" size="sm" />}
+        {isPending && <Progress isIndeterminate aria-label={t("repo.loading")} size="sm" />}
         {error && <ErrorAlert error={error} />}
         {!isPending && !error && codes.length === 0 && (
           <Alert tone="info">
-            This server has issued no invite codes to your account.
+            {t("invites.none")}
           </Alert>
         )}
         {codes.map((code) => {
@@ -46,8 +46,8 @@ export function InvitesScreen() {
                 color={code.disabled ? "danger" : exhausted ? "default" : "success"}
               >
                 {code.disabled
-                  ? "disabled"
-                  : `${used}/${code.available} used`}
+                  ? t("invites.disabled")
+                  : t("invites.used", { used, available: code.available })}
               </Chip>
             </div>
           );

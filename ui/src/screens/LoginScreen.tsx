@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Divider, Link } from "@heroui/react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
@@ -59,23 +60,25 @@ function hintedHandle(search: string, remembered: string): string {
   return remembered;
 }
 
-const schema = z.object({
-  handle: z
-    .string()
-    .trim()
-    .min(1, "Enter your handle")
-    .refine((v) => !v.includes("@"), "Sign in with your handle, not your email")
-    .refine(
-      (v) => v.includes(".") || v.startsWith("did:"),
-      "Handles look like alice.example.com",
-    ),
-  password: z.string().min(1, "Enter your password"),
-  authFactorToken: z.string().trim().optional(),
-});
+const makeSchema = (t: (key: string) => string) =>
+  z.object({
+    handle: z
+      .string()
+      .trim()
+      .min(1, t("login.errorHandleRequired"))
+      .refine((v) => !v.includes("@"), t("login.errorHandleEmail"))
+      .refine(
+        (v) => v.includes(".") || v.startsWith("did:"),
+        t("login.errorHandleShape"),
+      ),
+    password: z.string().min(1, t("login.errorPasswordRequired")),
+    authFactorToken: z.string().trim().optional(),
+  });
 
-type Values = z.infer<typeof schema>;
+type Values = z.infer<ReturnType<typeof makeSchema>>;
 
 export function LoginScreen() {
+  const { t } = useTranslation();
   const [pds, setPds] = useAtom(pdsUrlAtom);
   const [lastHandle, setLastHandle] = useAtom(lastHandleAtom);
   const setSession = useSetAtom(sessionAtom);
@@ -86,7 +89,7 @@ export function LoginScreen() {
   const [needsFactor, setNeedsFactor] = useState<"totp" | "email" | null>(null);
 
   const form = useForm<Values>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(makeSchema(t)),
     defaultValues: {
       handle: hintedHandle(window.location.search, lastHandle),
       password: "",
@@ -133,7 +136,7 @@ export function LoginScreen() {
       const credential = (await navigator.credentials.get({
         publicKey: toPublicKeyRequest(started.publicKey),
       })) as PublicKeyCredential | null;
-      if (!credential) throw new Error("No passkey was offered.");
+      if (!credential) throw new Error(t("login.passkeyNone"));
 
       return finishPasskeyLogin(client, {
         requestId: started.requestId,
@@ -185,11 +188,11 @@ export function LoginScreen() {
 
   return (
     <AuthCard
-      title="Sign in"
-      subtitle="Use the handle for your account."
+      title={t("login.title")}
+      subtitle={t("login.subtitle")}
       footer={
         <>
-          No account? <Link href="#/signup" size="sm">Create one</Link>
+          {t("login.noAccount")} <Link href="#/signup" size="sm">{t("login.createOne")}</Link>
         </>
       }
     >
@@ -198,27 +201,27 @@ export function LoginScreen() {
         onSubmit={form.handleSubmit((values) => signIn.mutate(values))}
       >
         <HandleField
-          label="Handle"
-          placeholder="alice.rocksky.social"
+          label={t("common.handle")}
+          placeholder={t("login.handlePlaceholder")}
           autoComplete="username"
           error={form.formState.errors.handle}
           {...form.register("handle")}
         />
 
         {detect.isPending && (
-          <p className="text-xs text-foreground-500">Finding your server…</p>
+          <p className="text-xs text-foreground-500">{t("login.findingServer")}</p>
         )}
         {detected && !detect.isPending && (
           <div className="flex items-center gap-2 text-xs text-foreground-500">
             <IconServer2 size={14} />
             <span className="truncate">
-              Signing in to <span className="text-foreground">{new URL(detected).host}</span>
+              {t("login.signingInTo")} <span className="text-foreground">{new URL(detected).host}</span>
             </span>
           </div>
         )}
 
         <PasswordField
-          label="Password"
+          label={t("common.password")}
           autoComplete="current-password"
           error={form.formState.errors.password}
           {...form.register("password")}
@@ -226,11 +229,11 @@ export function LoginScreen() {
 
         {needsFactor && (
           <Field
-            label="Code"
+            label={t("login.factorLabel")}
             description={
               needsFactor === "totp"
-                ? "From your authenticator app."
-                : "Sent to the email on your account."
+                ? t("login.factorTotp")
+                : t("login.factorEmail")
             }
             inputMode={needsFactor === "totp" ? "numeric" : undefined}
             autoComplete="one-time-code"
@@ -250,7 +253,7 @@ export function LoginScreen() {
           isLoading={signIn.isPending}
           fullWidth
         >
-          Sign in
+          {t("common.signIn")}
         </Button>
       </form>
 
@@ -267,16 +270,16 @@ export function LoginScreen() {
           onPress={() => passkeyLogin.mutate(form.getValues())}
           fullWidth
         >
-          Sign in with a passkey
+          {t("login.passkey")}
         </Button>
         {!passkeysAvailable() && (
           <p className="text-xs text-foreground-500">
-            This browser does not support passkeys.
+            {t("login.passkeyUnsupported")}
           </p>
         )}
         {passkeysAvailable() && !handle?.trim() && (
           <p className="text-xs text-foreground-500">
-            Enter your handle first, so your server can be found.
+            {t("login.passkeyNeedsHandle")}
           </p>
         )}
         {passkeyLogin.error ? <ErrorAlert error={passkeyLogin.error} /> : null}
@@ -285,11 +288,10 @@ export function LoginScreen() {
       <Divider />
 
       <div className="flex flex-col gap-2">
-        <PdsSelect label="Server (detected from your handle)" />
+        <PdsSelect label={t("login.serverLabel")} />
         {detect.error && (
           <Alert tone="info">
-            Could not detect a server for that handle yet. Pick one above if you
-            know it.
+            {t("login.detectFailed")}
           </Alert>
         )}
       </div>

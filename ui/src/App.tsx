@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { HeroUIProvider } from "@heroui/react";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
-import { isSignedInAtom } from "./atoms/store";
+import { isSignedInAtom, languageAtom } from "./atoms/store";
+import { detectLanguage, setupI18n } from "./i18n";
 import { Layout } from "./components/Layout";
 import { AccountScreen } from "./screens/AccountScreen";
 import { AppPasswordsScreen } from "./screens/AppPasswordsScreen";
@@ -78,7 +79,18 @@ function SignedInRoute({
   );
 }
 
+/// One i18n instance for the page, started before anything renders text.
+function useLanguageSetup() {
+  const stored = useAtomValue(languageAtom);
+  const language = detectLanguage(stored || null, navigator.languages ?? []);
+  const i18n = setupI18n(language);
+  useEffect(() => {
+    if (i18n.language !== language) void i18n.changeLanguage(language);
+  }, [i18n, language]);
+}
+
 export function App({ client }: { client: QueryClient }) {
+  useLanguageSetup();
   const signedIn = useAtomValue(isSignedInAtom);
   const [route, navigate] = useHashRoute(signedIn ? "account" : "login");
 

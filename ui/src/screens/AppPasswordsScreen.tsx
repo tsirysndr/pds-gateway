@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@heroui/react";
 import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Alert, ErrorAlert } from "../components/Alert";
@@ -25,19 +26,21 @@ import {
   useRevokeAppPassword,
 } from "../lib/api";
 
-const schema = z.object({
-  name: z.string().trim().min(1, "Give it a name"),
+const makeSchema = (t: (key: string) => string) =>
+  z.object({
+  name: z.string().trim().min(1, t("appPasswords.errorName")),
   privileged: z.boolean(),
 });
 
 export function AppPasswordsScreen() {
+  const { t } = useTranslation();
   const list = useAppPasswords();
   const create = useCreateAppPassword();
   const revoke = useRevokeAppPassword();
   const [issued, setIssued] = useState<string | null>(null);
 
-  const form = useForm<z.infer<typeof schema>>({
-    resolver: zodResolver(schema),
+  const form = useForm<z.infer<ReturnType<typeof makeSchema>>>({
+    resolver: zodResolver(makeSchema(t)),
     defaultValues: { name: "", privileged: false },
   });
 
@@ -45,10 +48,8 @@ export function AppPasswordsScreen() {
     <div className="flex flex-col gap-4">
       <Card shadow="none" className="border border-default-200">
         <CardHeader className="flex-col items-start gap-1">
-          <h2 className="text-lg font-semibold">App passwords</h2>
-          <p className="text-sm text-foreground-500">
-            For clients that sign in with a password instead of OAuth.
-          </p>
+          <h2 className="text-lg font-semibold">{t("appPasswords.title")}</h2>
+          <p className="text-sm text-foreground-500">{t("appPasswords.subtitle")}</p>
         </CardHeader>
         <CardBody className="gap-3">
           <form
@@ -65,8 +66,8 @@ export function AppPasswordsScreen() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
               <Field
                 className="sm:flex-1"
-                label="Name"
-                placeholder="my phone"
+                label={t("common.name")}
+                placeholder={t("appPasswords.namePlaceholder")}
                 error={form.formState.errors.name}
                 {...form.register("name")}
               />
@@ -76,16 +77,16 @@ export function AppPasswordsScreen() {
                 className="sm:mt-3"
                 isLoading={create.isPending}
               >
-                Create
+                {t("appPasswords.create")}
               </Button>
             </div>
             <Checkbox size="sm" {...form.register("privileged")}>
-              Allow access to direct messages
+              {t("appPasswords.allowDms")}
             </Checkbox>
           </form>
 
           {issued && (
-            <Alert tone="success" title="Copy this now — it is shown once">
+            <Alert tone="success" title={t("appPasswords.copyOnce")}>
               <Snippet size="sm" hideSymbol className="mt-1 w-full overflow-x-auto">
                 {issued}
               </Snippet>
@@ -98,15 +99,15 @@ export function AppPasswordsScreen() {
       <Card shadow="none" className="border border-default-200">
         <CardBody>
           {list.error && <ErrorAlert error={list.error} />}
-          <Table aria-label="App passwords" removeWrapper>
+          <Table aria-label={t("appPasswords.title")} removeWrapper>
             <TableHeader>
-              <TableColumn>NAME</TableColumn>
-              <TableColumn>CREATED</TableColumn>
+              <TableColumn>{t("appPasswords.columnName")}</TableColumn>
+              <TableColumn>{t("appPasswords.columnCreated")}</TableColumn>
               <TableColumn> </TableColumn>
             </TableHeader>
             <TableBody
               isLoading={list.isPending}
-              emptyContent="No app passwords yet."
+              emptyContent={t("appPasswords.empty")}
               items={list.data?.passwords ?? []}
             >
               {(item) => (
