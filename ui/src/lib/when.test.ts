@@ -17,6 +17,14 @@ describe("showing a server timestamp", () => {
     expect(formatWhen("2026-10-01T18:23:20")).toBe(formatWhen("2026-10-01T18:23:20Z"));
   });
 
+  it("reads a bare Unix epoch instead of the year 1790", () => {
+    // One implementation sent {"createdAt": "1790879337"} - Unix seconds as a
+    // string - and the list showed "Added Jun 2, 1797".
+    expect(formatWhen("1790879337")).toBe(formatWhen("2026-10-01T18:28:57Z"));
+    expect(formatWhen(1790879337)).toBe(formatWhen("2026-10-01T18:28:57Z"));
+    expect(formatWhen("1790879337014")).toBe(formatWhen("2026-10-01T18:28:57.014Z"));
+  });
+
   it("renders nothing rather than Invalid Date", () => {
     expect(formatWhen("not a date")).toBeNull();
     expect(formatWhen("")).toBeNull();
