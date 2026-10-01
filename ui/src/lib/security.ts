@@ -173,6 +173,7 @@ export function assertionJson(credential: PublicKeyCredential) {
     id: credential.id,
     rawId: toBase64Url(credential.rawId),
     type: credential.type,
+    clientExtensionResults: credential.getClientExtensionResults?.() ?? {},
     response: {
       clientDataJSON: toBase64Url(assertion.clientDataJSON),
       authenticatorData: toBase64Url(assertion.authenticatorData),
@@ -244,6 +245,9 @@ export function credentialJson(credential: PublicKeyCredential) {
     id: credential.id,
     rawId: toBase64Url(credential.rawId),
     type: credential.type,
+    // Required by servers built on the Yubico library, whose credential model
+    // refuses to construct without it.
+    clientExtensionResults: credential.getClientExtensionResults?.() ?? {},
     response: {
       clientDataJSON: toBase64Url(attestation.clientDataJSON),
       attestationObject: toBase64Url(attestation.attestationObject),
