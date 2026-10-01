@@ -15,7 +15,8 @@ export function AuthCard({
   return (
     <>
       <AuthBackdrop />
-      <div className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center gap-4 p-4">
+      {/* Above the backdrop, which is fixed at z-0. */}
+      <div className="relative z-10 mx-auto flex min-h-svh w-full max-w-md flex-col justify-center gap-4 p-4">
         {/* Opaque, so the drawing behind it never reduces the form's contrast. */}
         <Card className="border border-default-200 bg-content1" shadow="sm">
           <CardHeader className="flex-col items-start gap-1 pb-0">

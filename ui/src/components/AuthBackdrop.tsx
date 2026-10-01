@@ -19,7 +19,10 @@ export function AuthBackdrop() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[#f6f3ff] dark:bg-[#0f0b18]"
+      // z-0, not a negative index: a child painted at a negative z-index goes
+      // behind its parent's background, and `body` has an opaque one, which hid
+      // this entirely.
+      className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[#f6f3ff] dark:bg-[#0f0b18]"
     >
       <svg
         className="h-full w-full opacity-[0.85] dark:opacity-40"
