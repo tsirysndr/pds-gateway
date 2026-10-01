@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use axum::routing::get;
@@ -40,11 +41,46 @@ pub fn router(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     // handle to the account's own node, which the PDS's own page cannot do.
     for path in &state.config.ui.screens {
         if path != &index {
-            router = router.route(path, get(serve_index));
+            router = router.route(path, get(serve_screen));
         }
     }
 
     router
+}
+
+/// A screen path, answered by the console only for a client that asked for
+/// HTML.
+///
+/// `curl https://pds.example` is not a browser: it gets whatever the PDS serves
+/// there, which for a PDS home page is plain text. A bare `*/*` is not taken as
+/// a request for the console, so only something that names `text/html` — every
+/// browser does — is given the page.
+async fn serve_screen(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    if wants_html(&headers) {
+        return serve_index().await;
+    }
+
+    match crate::api::passthrough::handle(State(state), method, uri, headers, body).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+fn wants_html(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|accept| {
+            accept
+                .split(',')
+                .any(|part| part.trim().starts_with("text/html"))
+        })
 }
 
 async fn serve_index() -> Response {

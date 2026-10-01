@@ -940,18 +940,52 @@ async fn the_console_is_served_from_its_own_mount() {
 }
 
 #[tokio::test]
-async fn the_console_answers_the_root_page() {
+async fn a_browser_gets_the_console_at_the_root_page() {
     let h = fleet().await;
 
-    // The console is deliberately in front here: its sign-in resolves the
-    // handle to the account's own node, which the PDS's page cannot do.
-    let (status, headers, body) = h.get_with("/", &[]).await;
+    // Its sign-in resolves the handle to the account's own node, which the
+    // PDS's own page cannot do.
+    let (status, headers, body) = h
+        .get_with("/", &[("accept", "text/html,application/xhtml+xml")])
+        .await;
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
     assert!(Harness::node_header(&headers).is_none());
+}
 
-    // The PDS's own home page is still reachable where it is not shadowed; see
-    // taking_over_sign_in_leaves_every_other_path_with_the_pds.
+#[tokio::test]
+async fn a_non_browser_still_gets_the_pds_home_page() {
+    let h = fleet().await;
+
+    // `curl https://pds.example` is not a browser. A PDS home page is plain
+    // text — ASCII art — and replacing that with an HTML shell would be wrong.
+    for accept in [None, Some("*/*"), Some("text/plain")] {
+        let headers: Vec<(&str, &str)> = accept.map(|a| vec![("accept", a)]).unwrap_or_default();
+        let (status, headers_out, body) = h.get_with("/", &headers).await;
+        let text = String::from_utf8_lossy(&body);
+
+        assert_eq!(status, 200, "accept={accept:?}");
+        assert!(text.contains("primary pds"), "accept={accept:?}: {text}");
+        assert!(!text.contains("<div id="), "accept={accept:?} got the console");
+        assert_eq!(
+            Harness::node_header(&headers_out).as_deref(),
+            Some("primary"),
+            "accept={accept:?} should have been forwarded"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_consoles_own_mount_does_not_negotiate() {
+    let h = fleet().await;
+
+    // /console is the console's own path, not one the PDS serves, so it is the
+    // page whatever the client asks for.
+    for accept in ["*/*", "text/plain"] {
+        let (status, _, body) = h.get_with("/console", &[("accept", accept)]).await;
+        assert_eq!(status, 200, "accept={accept}");
+        assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
+    }
 }
 
 #[tokio::test]
@@ -1034,7 +1068,7 @@ async fn the_console_answers_sign_in_and_sign_up() {
     let h = fleet().await;
 
     for path in ["/", "/account/login", "/account/signup"] {
-        let (status, headers, body) = h.get_with(path, &[]).await;
+        let (status, headers, body) = h.get_with(path, &[("accept", "text/html")]).await;
         assert_eq!(status, 200, "{path}");
         assert!(
             String::from_utf8_lossy(&body).contains("<div id=\"root\">"),
@@ -1073,7 +1107,9 @@ async fn console_assets_load_from_any_mounted_path() {
     let h = fleet().await;
 
     // The page is served at several paths, so its assets cannot be relative.
-    let (_, _, body) = h.get_with("/account/login", &[]).await;
+    let (_, _, body) = h
+        .get_with("/account/login", &[("accept", "text/html")])
+        .await;
     let html = String::from_utf8_lossy(&body).to_string();
     let asset = html
         .split('"')
@@ -1112,7 +1148,9 @@ async fn the_screens_the_console_answers_are_configurable() {
     })
     .await;
 
-    let (status, headers, body) = h.get_with("/account/login", &[]).await;
+    let (status, headers, body) = h
+        .get_with("/account/login", &[("accept", "text/html")])
+        .await;
     assert_eq!(status, 200);
     assert!(
         String::from_utf8_lossy(&body).contains("\"owner\":\"pds\""),
@@ -1120,7 +1158,7 @@ async fn the_screens_the_console_answers_are_configurable() {
     );
     assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
 
-    let (status, _, body) = h.get_with("/console-only", &[]).await;
+    let (status, _, body) = h.get_with("/console-only", &[("accept", "text/html")]).await;
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
 }

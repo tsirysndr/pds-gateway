@@ -417,9 +417,10 @@ async fn pds_owned(State(state): State<StubState>, headers: HeaderMap) -> Respon
 
 async fn pds_home(State(state): State<StubState>, headers: HeaderMap) -> Response {
     record(&state, &headers, "/");
+    // Plain text, like a PDS home page: ASCII art, not a web page.
     (
-        [("content-type", "text/html")],
-        format!("<h1>{} account page</h1>", state.name),
+        [("content-type", "text/plain; charset=utf-8")],
+        format!("   __\n  /  \\  {} pds\n", state.name),
     )
         .into_response()
 }
