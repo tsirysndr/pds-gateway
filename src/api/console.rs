@@ -62,7 +62,7 @@ async fn serve_screen(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    if wants_html(&headers) {
+    if wants_html(&headers) && !oauth_ceremony(&uri) {
         return serve_index().await;
     }
 
@@ -70,6 +70,18 @@ async fn serve_screen(
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
+}
+
+/// A sign-in that belongs to the PDS, not the console.
+///
+/// OAuth holds its state in the PDS's own browser session: the request the
+/// client parked, the CSRF token, the handle the client hinted. The console
+/// cannot see any of it, so a sign-in it performed would leave the ceremony
+/// stranded with no way back to the client. The PDS marks the redirects of its
+/// own ceremony with `flow=oauth`, and those pages stay its own.
+fn oauth_ceremony(uri: &Uri) -> bool {
+    uri.query()
+        .is_some_and(|query| query.split('&').any(|pair| pair == "flow=oauth"))
 }
 
 fn wants_html(headers: &HeaderMap) -> bool {

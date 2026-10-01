@@ -1080,6 +1080,32 @@ async fn the_console_answers_sign_in_and_sign_up() {
 }
 
 #[tokio::test]
+async fn an_oauth_ceremony_keeps_its_sign_in_with_the_pds() {
+    let h = fleet().await;
+
+    // OAuth holds its state in the PDS's own browser session; a sign-in done on
+    // the console would strand the ceremony with no way back to the client. The
+    // PDS marks its ceremony redirects with flow=oauth, and those requests pass
+    // through even for a browser.
+    let (status, headers, body) = h
+        .get_with("/account/login?flow=oauth", &[("accept", "text/html")])
+        .await;
+    assert_eq!(status, 200);
+    assert!(
+        String::from_utf8_lossy(&body).contains("\"owner\":\"pds\""),
+        "an OAuth sign-in must reach the PDS, not the console"
+    );
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
+
+    // Anything else in the query keeps the console, hint included.
+    let (status, _, body) = h
+        .get_with("/account/login?login_hint=alice.example", &[("accept", "text/html")])
+        .await;
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
+}
+
+#[tokio::test]
 async fn taking_over_sign_in_leaves_every_other_path_with_the_pds() {
     let h = fleet().await;
 
