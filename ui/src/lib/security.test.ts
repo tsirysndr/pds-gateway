@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fromBase64Url, toPublicKey, toPublicKeyRequest } from "./security";
+import { fromBase64Url, toBase64Url, toPublicKey, toPublicKeyRequest } from "./security";
 
 const CHALLENGE = "Y2hhbGxlbmdl";
 
@@ -37,5 +37,20 @@ describe("reading WebAuthn options from a server", () => {
     expect(() => fromBase64Url(undefined as never)).toThrow(/missing a required field/);
     expect(() => fromBase64Url("")).toThrow(/missing a required field/);
     expect(() => toPublicKeyRequest({} as never)).toThrow(/missing a required field/);
+  });
+});
+
+describe("encoding a credential for the server", () => {
+  it("encodes rawId exactly as the browser spells credential.id", () => {
+    // `credential.id` is unpadded base64url, and at least one implementation
+    // requires `id` and `rawId` to be the same string. Padding or the standard
+    // alphabet here would have every registration refused.
+    const bytes = new Uint8Array([251, 255, 190, 0, 1, 2, 3]);
+    const encoded = toBase64Url(bytes.buffer);
+
+    expect(encoded).not.toContain("=");
+    expect(encoded).not.toContain("+");
+    expect(encoded).not.toContain("/");
+    expect(Array.from(fromBase64Url(encoded))).toEqual(Array.from(bytes));
   });
 });
