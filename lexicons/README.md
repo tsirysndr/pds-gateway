@@ -29,6 +29,7 @@ a client can tell, rather than guessing from a 404 on a path.
 | `regenerateRecoveryCodes` | replace the recovery codes |
 | `listPasskeys` | registered credentials |
 | `beginPasskeyRegistration` | WebAuthn creation options plus a `requestId` |
+| | `requestId` is opaque: it carries both the challenge handle and the secret the server requires to claim it, so only the caller that started a ceremony can finish it |
 | `finishPasskeyRegistration` | verify the attestation and store the credential |
 | `deletePasskey` | remove a credential |
 
@@ -41,6 +42,11 @@ factor off, or a stolen session would undo the protection it exists to provide.
 `beginTwoFactor` returns a secret that is **not yet in force**. Until
 `confirmTwoFactor` succeeds the account still authenticates with its password
 alone, so a half-finished enrolment cannot lock anyone out.
+
+`beginPasskeyRegistration` and `deletePasskey` require the password for the
+same reason: a passkey *is* a way to sign in, so adding or removing one changes
+who can get into the account. Both atoll and clojure-pds say as much in their
+own implementations — "never expose this as an unauthenticated DID API".
 
 Passkey registration is two calls because WebAuthn is a challenge-response
 ceremony. The server keeps the challenge against `requestId` with a short

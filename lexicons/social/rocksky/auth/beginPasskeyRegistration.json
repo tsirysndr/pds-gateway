@@ -4,12 +4,22 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Starts a WebAuthn registration ceremony. The server holds the challenge against `requestId` until the ceremony finishes or expires.",
+      "description": "Starts a WebAuthn registration ceremony. The server holds the challenge against `requestId` until the ceremony finishes or expires. The password is required because registering a credential adds a way to sign in: an access token alone must not be enough to do that.",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
+          "required": [
+            "password"
+          ],
           "properties": {
+            "password": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string",
+              "description": "Two-factor code, when the account has two-factor enabled."
+            },
             "name": {
               "type": "string",
               "description": "A label for the credential, shown in the passkey list."
@@ -21,7 +31,10 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["requestId", "publicKey"],
+          "required": [
+            "requestId",
+            "publicKey"
+          ],
           "properties": {
             "requestId": {
               "type": "string",
@@ -34,7 +47,20 @@
           }
         }
       },
-      "errors": [{ "name": "NotSupported" }, { "name": "RateLimited" }]
+      "errors": [
+        {
+          "name": "InvalidCredentials"
+        },
+        {
+          "name": "InvalidCode"
+        },
+        {
+          "name": "TooManyPasskeys"
+        },
+        {
+          "name": "RateLimited"
+        }
+      ]
     }
   }
 }

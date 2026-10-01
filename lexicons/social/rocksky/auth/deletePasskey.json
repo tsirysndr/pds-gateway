@@ -9,11 +9,28 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["id"],
-          "properties": { "id": { "type": "string" } }
+          "required": [
+            "id",
+            "password"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            }
+          }
         }
       },
-      "errors": [{ "name": "NotFound" }]
+      "errors": [
+        {
+          "name": "NotFound"
+        },
+        {
+          "name": "InvalidCredentials"
+        }
+      ]
     }
   }
 }
