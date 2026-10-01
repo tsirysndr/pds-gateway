@@ -613,6 +613,18 @@ that account's own node; otherwise it goes to the default node.
 
 ## Limitations
 
+- **The OAuth consent screen stays with the PDS, deliberately.**
+  `/oauth/authorize` is not in `ui.screens`, and the config refuses the OAuth
+  endpoints clients call directly. This is a decision, not an omission: the
+  consent decision is the most CSRF-sensitive step in the flow, and both
+  clojure-pds and scala-pds bind it to a browser cookie secret plus a CSRF nonce
+  on purpose — scala's own source notes that "the secret lives in a cookie, so a
+  leaked URL cannot be replayed by another browser". Serving the screen from the
+  gateway would mean adding a second, bearer-token authorisation path to exactly
+  that step in two OAuth servers. atoll's `decide/5` is token-based and would fit
+  a shared contract today, but a consent UI that works on some nodes and not
+  others is worse than one that is consistently the PDS's own. The console keeps
+  sign-in, sign-up and passkey sign-in, where no such binding is in the way.
 - **OAuth is single-node.** Passed-through `/oauth/*` requests go to the default
   node unless a bearer token says otherwise, so a browser login flow for an
   account hosted on another node is served by the default node and will not find
