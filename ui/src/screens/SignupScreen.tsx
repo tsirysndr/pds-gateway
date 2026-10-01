@@ -15,12 +15,20 @@ import { describeServer } from "../lib/servers";
 import { createClient } from "../lib/xrpc";
 import type { Session } from "../lib/types";
 
-const schema = z.object({
-  handle: z.string().trim().min(1, "Choose a handle"),
-  email: z.string().trim().email("Enter a valid email"),
-  password: z.string().min(8, "Use at least 8 characters"),
-  inviteCode: z.string().trim().optional(),
-});
+const schema = z
+  .object({
+    handle: z.string().trim().min(1, "Choose a handle"),
+    email: z.string().trim().email("Enter a valid email"),
+    password: z.string().min(8, "Use at least 8 characters"),
+    confirmPassword: z.string().min(1, "Repeat your password"),
+    inviteCode: z.string().trim().optional(),
+  })
+  // A typo in a password you cannot see locks you out of a new account, and
+  // there is nothing to recover from yet.
+  .refine((values) => values.password === values.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Both passwords must match",
+  });
 
 type Values = z.infer<typeof schema>;
 
@@ -37,7 +45,13 @@ export function SignupScreen() {
 
   const form = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { handle: "", email: "", password: "", inviteCode: "" },
+    defaultValues: {
+      handle: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+      inviteCode: "",
+    },
   });
 
   const create = useMutation({
@@ -90,6 +104,12 @@ export function SignupScreen() {
           autoComplete="new-password"
           error={form.formState.errors.password}
           {...form.register("password")}
+        />
+        <PasswordField
+          label="Confirm password"
+          autoComplete="new-password"
+          error={form.formState.errors.confirmPassword}
+          {...form.register("confirmPassword")}
         />
         {server?.inviteCodeRequired && (
           <Field

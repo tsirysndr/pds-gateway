@@ -100,6 +100,13 @@ export const handlers = [
   ),
 
   // social.rocksky.auth.*: the shared contract every PDS implements.
+  http.post("*/xrpc/com.atproto.server.createAccount", async ({ request }) => {
+    const body = (await request.json()) as { handle: string; email: string };
+    return HttpResponse.json(
+      session({ did: "did:plc:new234567new234567new2", handle: body.handle }),
+    );
+  }),
+
   http.get("*/xrpc/social.rocksky.auth.getTwoFactor", () =>
     HttpResponse.json({ state: "disabled", recoveryRemaining: 0 }),
   ),
