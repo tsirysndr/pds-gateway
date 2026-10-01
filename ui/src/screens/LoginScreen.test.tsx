@@ -98,6 +98,49 @@ describe("signing in", () => {
     });
   });
 
+  it("offers a passkey as another way in, once a handle is given", async () => {
+    // happy-dom has no WebAuthn, so stand in an authenticator before render:
+    // the button is hidden entirely when the browser cannot do passkeys.
+    Object.defineProperty(window, "PublicKeyCredential", {
+      configurable: true,
+      value: function PublicKeyCredential() {},
+    });
+    Object.defineProperty(navigator, "credentials", {
+      configurable: true,
+      value: {
+        get: async () => ({
+          id: "cred-1",
+          rawId: new Uint8Array([1, 2, 3]).buffer,
+          type: "public-key",
+          response: {
+            clientDataJSON: new Uint8Array([4]).buffer,
+            authenticatorData: new Uint8Array([5]).buffer,
+            signature: new Uint8Array([6]).buffer,
+            userHandle: null,
+          },
+        }),
+      },
+    });
+
+    const user = userEvent.setup();
+    const { store } = renderApp(<LoginScreen />);
+
+    const button = screen.getByRole("button", { name: /Sign in with a passkey/i });
+
+    // The handle locates the server, so it is needed before any credential.
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/Enter your handle first/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Handle"), BOB.handle);
+    await waitFor(() => expect(button).toBeEnabled());
+
+    await user.click(button);
+
+    await waitFor(() => expect(store.get(sessionAtom)?.handle).toBe(BOB.handle), {
+      timeout: 5000,
+    });
+  });
+
   it("shows the server's own message when the password is wrong", async () => {
     const user = userEvent.setup();
     renderApp(<LoginScreen />);

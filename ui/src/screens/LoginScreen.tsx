@@ -5,7 +5,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { useAtom, useSetAtom } from "jotai";
-import { IconServer2, IconShieldLock } from "@tabler/icons-react";
+import { IconKey, IconServer2, IconShieldLock } from "@tabler/icons-react";
+import {
+  assertionJson,
+  beginPasskeyLogin,
+  finishPasskeyLogin,
+  passkeysAvailable,
+  toPublicKeyRequest,
+} from "../lib/security";
 import { Field } from "../components/Field";
 import { AuthCard } from "../components/AuthCard";
 import { Alert, ErrorAlert } from "../components/Alert";
@@ -112,6 +119,38 @@ export function LoginScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handle]);
 
+  /// Signing in with a passkey instead of a password. The handle still comes
+  /// first: it is what locates the server to ask.
+  const passkeyLogin = useMutation({
+    mutationFn: async (values: Values) => {
+      const resolution = await detectPds(values.handle);
+      const base = preferOrigin(resolution.service);
+      setPds(base);
+
+      const client = createClient(base);
+      const started = await beginPasskeyLogin(client, values.handle);
+
+      const credential = (await navigator.credentials.get({
+        publicKey: toPublicKeyRequest(started.publicKey),
+      })) as PublicKeyCredential | null;
+      if (!credential) throw new Error("No passkey was offered.");
+
+      return finishPasskeyLogin(client, {
+        requestId: started.requestId,
+        credential: assertionJson(credential),
+        ...factorField(needsFactor, values.authFactorToken),
+      });
+    },
+    onSuccess: (session, values) => {
+      setLastHandle(values.handle);
+      setSession(session);
+    },
+    onError: (error) => {
+      // An account with a factor is still asked for one.
+      setNeedsFactor(factorKind(error) ?? needsFactor);
+    },
+  });
+
   const signIn = useMutation({
     mutationFn: async (values: Values) => {
       // Detection usually landed while typing. Resolve only if it has not, so a
@@ -214,6 +253,34 @@ export function LoginScreen() {
           Sign in
         </Button>
       </form>
+
+      <Divider />
+
+      {/* Other ways in. A passkey needs the handle too, because it is how the
+          right server is found before any credential is offered. */}
+      <div className="flex flex-col gap-2">
+        <Button
+          variant="bordered"
+          startContent={<IconKey size={16} />}
+          isDisabled={!passkeysAvailable() || !handle?.trim()}
+          isLoading={passkeyLogin.isPending}
+          onPress={() => passkeyLogin.mutate(form.getValues())}
+          fullWidth
+        >
+          Sign in with a passkey
+        </Button>
+        {!passkeysAvailable() && (
+          <p className="text-xs text-foreground-500">
+            This browser does not support passkeys.
+          </p>
+        )}
+        {passkeysAvailable() && !handle?.trim() && (
+          <p className="text-xs text-foreground-500">
+            Enter your handle first, so your server can be found.
+          </p>
+        )}
+        {passkeyLogin.error ? <ErrorAlert error={passkeyLogin.error} /> : null}
+      </div>
 
       <Divider />
 

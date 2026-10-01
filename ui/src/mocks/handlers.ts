@@ -148,6 +148,29 @@ export const handlers = [
     HttpResponse.json({ recoveryCodes: ["EEEE-FFFF"] }),
   ),
 
+  http.post("*/xrpc/social.rocksky.auth.beginPasskeyLogin", async ({ request }) => {
+    const body = (await request.json()) as { identifier?: string };
+    const found = ACCOUNTS.find((a) => a.handle === body.identifier);
+    if (!found) {
+      return HttpResponse.json(
+        { error: "AccountNotFound", message: "No passkey is registered for that account" },
+        { status: 401 },
+      );
+    }
+    return HttpResponse.json({
+      requestId: "ceremony.binding",
+      publicKey: { challenge: "Y2hhbGxlbmdl", userVerification: "required" },
+    });
+  }),
+
+  http.post("*/xrpc/social.rocksky.auth.finishPasskeyLogin", async ({ request }) => {
+    const body = (await request.json()) as { requestId?: string };
+    if (body.requestId !== "ceremony.binding") {
+      return HttpResponse.json({ error: "RequestExpired" }, { status: 400 });
+    }
+    return HttpResponse.json(session(BOB));
+  }),
+
   http.get("*/xrpc/social.rocksky.auth.listPasskeys", () =>
     HttpResponse.json({ passkeys: [] }),
   ),

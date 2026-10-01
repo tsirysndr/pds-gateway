@@ -7,6 +7,7 @@
 /// guessing from a 404 on some path.
 
 import { XrpcError, type Client } from "./xrpc";
+import type { Session } from "./types";
 
 export type TotpState = "disabled" | "pending" | "enabled" | "unsupported";
 
@@ -117,6 +118,67 @@ export function finishPasskeyRegistration(
 
 export function deletePasskey(client: Client, id: string, password: string) {
   return client.post("social.rocksky.auth.deletePasskey", { id, password });
+}
+
+// --- signing in with a passkey -------------------------------------------
+// These take no token: they are how a session begins, so they use a client
+// built for the resolved PDS without one.
+
+export function beginPasskeyLogin(client: Client, identifier: string) {
+  return client.post<{ requestId: string; publicKey: RequestOptions }>(
+    "social.rocksky.auth.beginPasskeyLogin",
+    { identifier },
+  );
+}
+
+export function finishPasskeyLogin(
+  client: Client,
+  input: {
+    requestId: string;
+    credential: unknown;
+    totpCode?: string;
+    authFactorToken?: string;
+  },
+) {
+  return client.post<Session>("social.rocksky.auth.finishPasskeyLogin", input);
+}
+
+/// Assertion options as the server sends them, binary fields base64url.
+export type RequestOptions = {
+  challenge: string;
+  rpId?: string;
+  timeout?: number;
+  userVerification?: UserVerificationRequirement;
+  allowCredentials?: { id: string; type: "public-key" }[];
+};
+
+export function toPublicKeyRequest(
+  options: RequestOptions,
+): PublicKeyCredentialRequestOptions {
+  return {
+    ...options,
+    challenge: fromBase64Url(options.challenge) as BufferSource,
+    allowCredentials: options.allowCredentials?.map((c) => ({
+      ...c,
+      id: fromBase64Url(c.id) as BufferSource,
+    })),
+  };
+}
+
+/// The shape `finishPasskeyLogin` expects back.
+export function assertionJson(credential: PublicKeyCredential) {
+  const assertion = credential.response as AuthenticatorAssertionResponse;
+  return {
+    id: credential.id,
+    rawId: toBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: toBase64Url(assertion.clientDataJSON),
+      authenticatorData: toBase64Url(assertion.authenticatorData),
+      signature: toBase64Url(assertion.signature),
+      userHandle: assertion.userHandle ? toBase64Url(assertion.userHandle) : null,
+    },
+  };
 }
 
 export function passkeysAvailable() {
