@@ -96,6 +96,13 @@ fail_open = true
 connect_timeout = "3s"
 response_timeout = "2s"
 
+[ui]
+# The bundled account console. It mounts on its own path because the gateway
+# fronts a hostname whose PDS already serves a frontend at "/". Set mount = "/"
+# to put the console in front instead.
+enabled = true
+mount = "/console"
+
 [admin]
 # Unset disables /admin/*.
 token = "change-me"
