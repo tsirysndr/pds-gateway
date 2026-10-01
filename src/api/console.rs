@@ -18,24 +18,30 @@ struct Assets;
 
 pub fn router(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     let mount = state.config.ui.mount.clone();
-    let index = if mount == "/" {
-        "/".to_owned()
-    } else {
-        mount.clone()
-    };
+    let index = if mount == "/" { "/".to_owned() } else { mount.clone() };
 
     let mut router = Router::new()
+        // Assets live under the gateway's own namespace, not under the mount:
+        // the console also answers paths like /account/login, and a relative
+        // URL there would resolve somewhere nothing is served.
+        .route("/_gateway/console/{*path}", get(serve_asset))
         .route(&index, get(serve_index))
         .route("/_gateway/pds", get(servers));
 
-    // The console is a single page, so any path under the mount that is not a
-    // bundled file still serves the page and lets the router inside it decide.
-    if mount == "/" {
-        router = router.route("/{*path}", get(serve_asset));
-    } else {
+    // The console is one page, so a path under the mount that is not a bundled
+    // file still serves it and lets the router inside decide.
+    if mount != "/" {
         router = router
             .route(&format!("{mount}/"), get(serve_index))
-            .route(&format!("{mount}/{{*path}}"), get(serve_asset));
+            .route(&format!("{mount}/{{*path}}"), get(serve_index));
+    }
+
+    // Paths the console answers instead of the PDS. Its sign-in resolves the
+    // handle to the account's own node, which the PDS's own page cannot do.
+    for path in &state.config.ui.screens {
+        if path != &index {
+            router = router.route(path, get(serve_index));
+        }
     }
 
     router
@@ -77,8 +83,7 @@ async fn serve_asset(Path(path): Path<String>) -> Response {
             )
                 .into_response()
         }
-        // Unknown path inside the console: serve the page, not a 404.
-        None => serve_index().await,
+        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
     }
 }
 

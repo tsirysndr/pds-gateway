@@ -404,6 +404,10 @@ impl Default for DelegateConfig {
 pub struct UiConfig {
     pub enabled: bool,
     pub mount: String,
+    /// Paths the console answers instead of passing them to the PDS. Its
+    /// sign-in resolves the handle to the account's own node, which the PDS's
+    /// own page cannot do, so taking these over is the point of having it.
+    pub screens: Vec<String>,
 }
 
 impl Default for UiConfig {
@@ -411,6 +415,11 @@ impl Default for UiConfig {
         Self {
             enabled: true,
             mount: "/console".to_owned(),
+            screens: vec![
+                "/".to_owned(),
+                "/account/login".to_owned(),
+                "/account/signup".to_owned(),
+            ],
         }
     }
 }
@@ -770,6 +779,9 @@ impl Config {
 
         parse_env_bool("GATEWAY_UI_ENABLED", &mut self.ui.enabled)?;
         parse_env("GATEWAY_UI_MOUNT", &mut self.ui.mount)?;
+        if let Some(screens) = parse_env_list("GATEWAY_UI_SCREENS") {
+            self.ui.screens = screens;
+        }
 
         parse_env_opt("GATEWAY_ADMIN_TOKEN", &mut self.admin.token)?;
         parse_env_bool("GATEWAY_METRICS", &mut self.admin.metrics)?;
@@ -806,6 +818,16 @@ impl Config {
                 node.url.set_path("");
             }
         }
+
+        for path in &mut self.ui.screens {
+            *path = path.trim().to_owned();
+            if !path.starts_with('/') {
+                path.insert(0, '/');
+            }
+        }
+        self.ui.screens.retain(|p| !p.is_empty());
+        self.ui.screens.sort();
+        self.ui.screens.dedup();
 
         self.ui.mount = {
             let trimmed = self.ui.mount.trim().trim_end_matches('/').to_owned();
@@ -930,15 +952,36 @@ impl Config {
         }
 
         // The console must not sit on a path the gateway is authoritative for.
-        if self.ui.enabled
-            && ["/xrpc", "/tls-check", "/_gateway", "/.well-known"]
+        const RESERVED: [&str; 4] = ["/xrpc", "/tls-check", "/_gateway", "/.well-known"];
+        if self.ui.enabled {
+            if RESERVED
                 .iter()
                 .any(|reserved| self.ui.mount.starts_with(reserved))
-        {
-            return Err(ConfigError::Invalid(format!(
-                "ui.mount `{}` would shadow a path the gateway owns",
-                self.ui.mount
-            )));
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "ui.mount `{}` would shadow a path the gateway owns",
+                    self.ui.mount
+                )));
+            }
+            for path in &self.ui.screens {
+                if RESERVED.iter().any(|reserved| path.starts_with(reserved)) {
+                    return Err(ConfigError::Invalid(format!(
+                        "ui.screens entry `{path}` would shadow a path the gateway owns"
+                    )));
+                }
+                // The OAuth machine endpoints are called by clients, not
+                // browsers, and the consent decision is bound to the PDS's own
+                // session. Serving a page there would break the flow.
+                if path.starts_with("/oauth/par")
+                    || path.starts_with("/oauth/token")
+                    || path.starts_with("/oauth/revoke")
+                {
+                    return Err(ConfigError::Invalid(format!(
+                        "ui.screens entry `{path}` is an OAuth endpoint clients call directly, \
+                         not a screen"
+                    )));
+                }
+            }
         }
 
         if self.admin.token.as_deref().is_some_and(str::is_empty) {
