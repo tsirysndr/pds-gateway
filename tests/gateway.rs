@@ -913,3 +913,111 @@ async fn a_relayed_claim_does_not_make_the_relay_the_host() {
         .unwrap();
     assert_eq!(account.node, "radxa", "the registry must record the real host");
 }
+
+
+#[tokio::test]
+async fn the_console_is_served_from_its_own_mount() {
+    let h = fleet().await;
+
+    let (status, headers, body) = h.get_with("/console", &[]).await;
+    assert_eq!(status, 200);
+    assert!(
+        headers
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("text/html")
+    );
+    assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
+
+    // A path inside the console still serves the page, so its own routing works.
+    let (status, _, body) = h.get_with("/console/settings", &[]).await;
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
+}
+
+#[tokio::test]
+async fn the_console_does_not_shadow_the_pds_frontend() {
+    let h = fleet().await;
+
+    // `/` still belongs to the PDS; the console lives at its own mount.
+    let (status, headers, body) = h.get_with("/", &[]).await;
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("primary account page"));
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
+}
+
+#[tokio::test]
+async fn the_server_list_only_publishes_reachable_urls() {
+    let h = fleet().await;
+
+    let (status, _, body) = h.get("/_gateway/pds").await;
+    assert_eq!(status, 200);
+
+    let servers = body["servers"].as_array().unwrap();
+    assert_eq!(servers.len(), 2);
+
+    for server in servers {
+        let url = server["url"].as_str().unwrap();
+        // A browser must never be handed an address only the gateway can reach.
+        assert!(
+            !url.contains("127.0.0.1") && !url.contains("localhost"),
+            "published an unreachable url: {url}"
+        );
+    }
+
+    assert_eq!(body["handleDomains"], json!(["rocksky.social"]));
+}
+
+#[tokio::test]
+async fn a_node_behind_the_gateway_is_published_as_the_gateway() {
+    let primary = start_node("primary", vec![]).await;
+    let radxa = start_node("radxa", vec![]).await;
+    let h = harness(vec![primary, radxa], |config| {
+        // The production shape: the PDS on this machine is reached over
+        // loopback but publishes the gateway's own hostname.
+        config.nodes[0].public_host = Some("rocksky.social".to_owned());
+    })
+    .await;
+
+    let (status, _, body) = h.get("/_gateway/pds").await;
+    assert_eq!(status, 200);
+
+    let servers = body["servers"].as_array().unwrap();
+    let local = servers.iter().find(|s| s["name"] == json!("primary")).unwrap();
+
+    // Choosing it sends the browser to the gateway, which forwards to that node.
+    assert_eq!(local["url"], json!("https://rocksky.social"));
+}
+
+#[tokio::test]
+async fn the_gateways_own_scheme_and_port_are_kept() {
+    let primary = start_node("primary", vec![]).await;
+    let h = harness(vec![primary], |config| {
+        // A development gateway on a port, reached over plain http.
+        config.server.public_url = url::Url::parse("http://localhost:4600").unwrap();
+        config.nodes[0].public_host = Some("localhost:4600".to_owned());
+    })
+    .await;
+
+    let (status, _, body) = h.get("/_gateway/pds").await;
+    assert_eq!(status, 200);
+
+    let url = body["servers"][0]["url"].as_str().unwrap();
+    // Not https, and not a bare host: exactly how this gateway is reached.
+    assert_eq!(url, "http://localhost:4600");
+}
+
+#[tokio::test]
+async fn the_console_can_be_disabled() {
+    let primary = start_node("primary", vec![]).await;
+    let h = harness(vec![primary], |config| {
+        config.ui.enabled = false;
+    })
+    .await;
+
+    // With the console off, the mount falls through to the PDS like any path.
+    let (status, _, _) = h.get_with("/console", &[]).await;
+    assert_eq!(status, 404, "the stub PDS has no /console");
+}
