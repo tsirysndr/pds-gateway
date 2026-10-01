@@ -394,6 +394,27 @@ impl Default for DelegateConfig {
     }
 }
 
+/// The bundled account console.
+///
+/// It mounts on its own path rather than `/`, because the gateway fronts a
+/// hostname whose PDS already serves a frontend there. Set `mount = "/"` to put
+/// this one in front instead.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct UiConfig {
+    pub enabled: bool,
+    pub mount: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mount: "/console".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AdminConfig {
@@ -414,6 +435,7 @@ pub struct Config {
     pub store: StoreConfig,
     pub redis: RedisConfig,
     pub delegate: DelegateConfig,
+    pub ui: UiConfig,
     pub admin: AdminConfig,
     #[serde(rename = "nodes")]
     pub nodes: Vec<NodeConfig>,
@@ -746,6 +768,9 @@ impl Config {
         parse_env_duration("GATEWAY_DELEGATE_CACHE_TTL", &mut self.delegate.cache_ttl)?;
         parse_env_bool("GATEWAY_DELEGATE_TLS_CHECK", &mut self.delegate.tls_check)?;
 
+        parse_env_bool("GATEWAY_UI_ENABLED", &mut self.ui.enabled)?;
+        parse_env("GATEWAY_UI_MOUNT", &mut self.ui.mount)?;
+
         parse_env_opt("GATEWAY_ADMIN_TOKEN", &mut self.admin.token)?;
         parse_env_bool("GATEWAY_METRICS", &mut self.admin.metrics)?;
 
@@ -781,6 +806,17 @@ impl Config {
                 node.url.set_path("");
             }
         }
+
+        self.ui.mount = {
+            let trimmed = self.ui.mount.trim().trim_end_matches('/').to_owned();
+            if trimmed.is_empty() {
+                "/".to_owned()
+            } else if trimmed.starts_with('/') {
+                trimmed
+            } else {
+                format!("/{trimmed}")
+            }
+        };
 
         if !self.health.probe_path.starts_with('/') {
             self.health.probe_path.insert(0, '/');
@@ -891,6 +927,18 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "firehose replay_buffer must be at least 1 in multiplex mode".to_owned(),
             ));
+        }
+
+        // The console must not sit on a path the gateway is authoritative for.
+        if self.ui.enabled
+            && ["/xrpc", "/tls-check", "/_gateway", "/.well-known"]
+                .iter()
+                .any(|reserved| self.ui.mount.starts_with(reserved))
+        {
+            return Err(ConfigError::Invalid(format!(
+                "ui.mount `{}` would shadow a path the gateway owns",
+                self.ui.mount
+            )));
         }
 
         if self.admin.token.as_deref().is_some_and(str::is_empty) {

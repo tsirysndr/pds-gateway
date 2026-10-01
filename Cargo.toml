@@ -45,6 +45,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 parking_lot = "0.12"
 arc-swap = "1"
 redis = { version = "1.7.1", features = ["tokio-rustls-comp", "connection-manager"] }
+rust-embed = { version = "8.12.0", features = ["mime-guess"] }
+mime_guess = "2.0.5"
 
 [dev-dependencies]
 tokio-test = "0.4"

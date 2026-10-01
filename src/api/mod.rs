@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod console;
 pub mod describe;
 pub mod passthrough;
 pub mod subscribe;
@@ -27,7 +28,7 @@ pub fn router(state: Arc<AppState>) -> AxumRouter {
         .allow_headers(Any)
         .max_age(Duration::from_secs(600));
 
-    AxumRouter::new()
+    let mut app = AxumRouter::new()
         .route("/.well-known/atproto-did", get(wellknown::atproto_did))
         .route("/tls-check", get(wellknown::tls_check))
         .route(
@@ -45,8 +46,13 @@ pub fn router(state: Arc<AppState>) -> AxumRouter {
         .route("/_gateway/health", get(describe::health))
         .route("/_gateway/health/ready", get(describe::ready))
         .route("/_gateway/metrics", get(describe::metrics))
-        .nest("/_gateway/admin", admin::router())
-        .fallback(any(passthrough::handle))
+        .nest("/_gateway/admin", admin::router());
+
+    if state.config.ui.enabled {
+        app = app.merge(console::router(&state));
+    }
+
+    app.fallback(any(passthrough::handle))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
