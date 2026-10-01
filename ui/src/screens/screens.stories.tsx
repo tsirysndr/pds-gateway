@@ -4,6 +4,7 @@ import { Provider as JotaiProvider, createStore } from "jotai";
 import { sessionAtom } from "../atoms/store";
 import { handlers } from "../mocks/handlers";
 import { ALICE, session } from "../mocks/fixtures";
+import { AuthBackdrop } from "../components/AuthBackdrop";
 import { AccountScreen } from "./AccountScreen";
 import { AppPasswordsScreen } from "./AppPasswordsScreen";
 import { InvitesScreen } from "./InvitesScreen";
@@ -32,6 +33,11 @@ const meta: Meta = { title: "Screens" };
 export default meta;
 
 export const SignIn: StoryObj = { render: () => <LoginScreen /> };
+
+export const Backdrop: StoryObj = {
+  name: "Sign in / the illustration alone",
+  render: () => <AuthBackdrop />,
+};
 
 export const SignInUnresolvableHandle: StoryObj = {
   name: "Sign in / handle not found",
