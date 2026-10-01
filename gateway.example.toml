@@ -22,6 +22,11 @@ allow_signups = true
 # Try every node on login, since an email cannot be resolved to a DID.
 broadcast_login = true
 honor_proxy_header = true
+# Send a browser sign-in to the PDS that holds the account. The form's CSRF
+# token is only valid on the node that rendered it, so a submission for an
+# account elsewhere is redirected rather than proxied.
+signin_redirect = true
+signin_paths = ["/account/login"]
 reserved_handles = ["admin", "api", "mod", "pds", "root", "support", "www"]
 
 [delegate]

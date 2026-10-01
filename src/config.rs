@@ -138,6 +138,12 @@ pub struct GatewayConfig {
     /// the gateway cannot resolve to a DID on its own.
     pub broadcast_login: bool,
     pub honor_proxy_header: bool,
+    /// Send a browser sign-in to the PDS that hosts the account named in the
+    /// form, instead of letting the default node reject it.
+    pub signin_redirect: bool,
+    /// Browser sign-in paths to intercept. The form field naming the account is
+    /// `identifier`, matching the PDS frontend.
+    pub signin_paths: Vec<String>,
 }
 
 /// Newtype so `Duration` fields keep humantime spelling without repeating the
@@ -207,6 +213,8 @@ impl Default for GatewayConfig {
             allow_signups: true,
             broadcast_login: true,
             honor_proxy_header: true,
+            signin_redirect: true,
+            signin_paths: vec!["/account/login".to_owned()],
         }
     }
 }
@@ -604,6 +612,10 @@ impl Config {
             "GATEWAY_HONOR_PROXY_HEADER",
             &mut self.gateway.honor_proxy_header,
         )?;
+        parse_env_bool("GATEWAY_SIGNIN_REDIRECT", &mut self.gateway.signin_redirect)?;
+        if let Some(paths) = parse_env_list("GATEWAY_SIGNIN_PATHS") {
+            self.gateway.signin_paths = paths;
+        }
 
         parse_env(
             "GATEWAY_PLC_DIRECTORY_URL",
@@ -781,6 +793,14 @@ impl Config {
                 node.url.set_path("");
             }
         }
+
+        for path in &mut self.gateway.signin_paths {
+            *path = path.trim().to_owned();
+            if !path.starts_with('/') {
+                path.insert(0, '/');
+            }
+        }
+        self.gateway.signin_paths.retain(|p| p.len() > 1);
 
         if !self.health.probe_path.starts_with('/') {
             self.health.probe_path.insert(0, '/');

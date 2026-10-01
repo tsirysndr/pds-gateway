@@ -32,6 +32,7 @@ Put it behind `rocksky.social` and it will route to the nodes behind it:
 - [What it does](#what-it-does)
 - [How routing works](#how-routing-works)
 - [Handle collisions and the delegate protocol](#handle-collisions-and-the-delegate-protocol)
+- [Sign-in](#sign-in)
 - [Account placement](#account-placement)
 - [The firehose](#the-firehose)
 - [Caching](#caching)
@@ -148,6 +149,33 @@ Account creation then goes through a two-phase reservation:
 
 Concurrent signups for one handle therefore produce exactly one account; there
 is a test for that.
+
+## Sign-in
+
+An API login (`com.atproto.server.createSession`) is routed by its `identifier`:
+a handle or DID resolves to its node and the credentials go **only** there. An
+email cannot be resolved, so the first login tries each node in turn and the
+answer is remembered, making later logins a single request.
+
+A browser sign-in is different, because the form is rendered by one node and its
+CSRF token is only valid there. Proxying the submission to another node would be
+rejected, so the gateway intercepts the configured sign-in paths, reads the
+`identifier` field, and when the account lives on another node replies
+`303 See Other` to that node's own sign-in page with `?login_hint=`:
+
+```
+POST /account/login            identifier=bob.rocksky.social
+  -> 303 https://radxa.rocksky.social/account/login?login_hint=bob.rocksky.social
+```
+
+The password is entered on the PDS that can verify it and is never replayed to
+another host — the redirect is a `303`, so the browser re-issues a `GET`. A
+sign-in for an account on the default node is proxied unchanged, and an
+identifier that resolves to nothing is left to the default node to answer, so
+neither case changes behaviour.
+
+Set `gateway.signin_redirect = false` to disable this, or
+`gateway.signin_paths` to match a frontend that uses different paths.
 
 ## Account placement
 
@@ -267,6 +295,7 @@ Every setting has an equivalent. The full list:
 | `GATEWAY_PLACEMENT`, `GATEWAY_DEFAULT_NODE` | `[gateway]` |
 | `GATEWAY_RESERVATION_TTL`, `GATEWAY_ALLOW_SIGNUPS` | `[gateway]` |
 | `GATEWAY_BROADCAST_LOGIN`, `GATEWAY_HONOR_PROXY_HEADER` | `[gateway]` |
+| `GATEWAY_SIGNIN_REDIRECT`, `GATEWAY_SIGNIN_PATHS` | `[gateway]` |
 | `GATEWAY_DELEGATE_ENABLED`, `GATEWAY_DELEGATE_FAN_OUT` | `[delegate]` |
 | `GATEWAY_DELEGATE_ASK_TIMEOUT`, `GATEWAY_DELEGATE_CACHE_TTL` | `[delegate]` |
 | `GATEWAY_DELEGATE_TLS_CHECK` | `[delegate]` |
@@ -588,6 +617,7 @@ not take any route away:
 | `/.well-known/atproto-did` | the gateway (handle authority) |
 | `/tls-check` | the gateway (on-demand TLS) |
 | `/_gateway`, `/_gateway/health`, `/_gateway/metrics`, `/_gateway/admin/*` | the gateway |
+| `/account/login` (`gateway.signin_paths`) | intercepted, then the owning PDS |
 | everything else — `/`, `/oauth/*`, `/health`, `/metrics`, `/.well-known/did.json`, assets | passed through |
 
 Gateway status lives under `/_gateway/` precisely so it cannot shadow a route the
@@ -597,10 +627,16 @@ that account's own node; otherwise it goes to the default node.
 ## Limitations
 
 - **OAuth is single-node.** Passed-through `/oauth/*` requests go to the default
-  node unless a bearer token says otherwise, so a browser login flow for an
-  account hosted on another node is served by the default node and will not find
-  it. Issuing tokens for the whole fleet would mean the gateway becoming a full
-  entryway that owns accounts, which it deliberately is not.
+  node unless a bearer token says otherwise. An atproto OAuth client resolves the
+  user's DID document and talks to their PDS directly, so this mostly affects a
+  flow that was pointed at the gateway deliberately. `/oauth/authorize` is not
+  redirected the way sign-in is, because its `request_uri` was issued by one
+  node's PAR and is meaningless on another. Issuing tokens for the whole fleet
+  would mean the gateway becoming a full entryway that owns accounts, which it
+  deliberately is not.
+- **A cross-node sign-in loses its post-login destination.** The redirect
+  carries the identifier but not any `next`/return URL the first node had, so the
+  user lands on that PDS's own page afterwards.
 - **Account migration between nodes is not automated.** Move the repository with
   the PDS's own import/export, then `POST /_gateway/admin/nodes/{from}/drain/{to}`
   or `DELETE /_gateway/admin/accounts/{did}` to correct the registry.
