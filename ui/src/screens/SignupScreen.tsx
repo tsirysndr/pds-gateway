@@ -7,6 +7,8 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { AuthCard } from "../components/AuthCard";
 import { Alert, ErrorAlert } from "../components/Alert";
 import { Field } from "../components/Field";
+import { HandleField } from "../components/HandleField";
+import { PasswordField } from "../components/PasswordField";
 import { PdsSelect } from "../components/PdsSelect";
 import { pdsUrlAtom, sessionAtom } from "../atoms/store";
 import { describeServer } from "../lib/servers";
@@ -67,14 +69,12 @@ export function SignupScreen() {
         className="flex flex-col gap-4"
         onSubmit={form.handleSubmit((values) => create.mutate(values))}
       >
-        <Field
+        <HandleField
           label="Handle"
           placeholder="alice"
           endContent={
             domain && <span className="text-small text-default-400">{domain}</span>
           }
-          autoCapitalize="none"
-          spellCheck="false"
           error={form.formState.errors.handle}
           {...form.register("handle")}
         />
@@ -85,9 +85,8 @@ export function SignupScreen() {
           error={form.formState.errors.email}
           {...form.register("email")}
         />
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           autoComplete="new-password"
           error={form.formState.errors.password}
           {...form.register("password")}
