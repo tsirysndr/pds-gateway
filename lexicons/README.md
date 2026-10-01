@@ -22,9 +22,9 @@ a client can tell, rather than guessing from a 404 on a path.
 
 | PDS | Status |
 | --- | --- |
-| [atoll](../../atoll) | `AtollWeb.AuthApiController` over its existing `Authenticator` and `Passkeys` |
-| [clojure-pds](../../clojure-pds) | `pds.api.auth` over `pds.security.factors` and `pds.security.passkeys` |
-| [scala-pds](../../scala-pds) | `pds.api.AuthApi` over `pds.security.Totp` and `pds.security.Passkeys` |
+| [atoll](https://github.com/tsirysndr/atoll) | `AtollWeb.AuthApiController` over its existing `Authenticator` and `Passkeys` |
+| [clojure-pds](https://github.com/tsirysndr/clojure-pds) | `pds.api.auth` over `pds.security.factors` and `pds.security.passkeys` |
+| [scala-pds](https://github.com/tsirysndr/disableTwoFactor-pds) | `pds.api.AuthApi` over `pds.security.Totp` and `pds.security.Passkeys` |
 
 Each one wraps machinery it already had; none of this added new cryptography.
 Their browser interfaces are untouched — these are an additional way in.
