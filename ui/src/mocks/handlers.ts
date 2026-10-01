@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw";
-import { ALICE, BOB, didDocument, PLC, session } from "./fixtures";
+import { ALICE, BOB, CARA, TOTP_ACCOUNT, didDocument, PLC, session } from "./fixtures";
 
-const ACCOUNTS = [ALICE, BOB];
+const ACCOUNTS = [ALICE, BOB, CARA];
 
 export const handlers = [
   // A browser preflights cross-origin requests, so the mocks answer those too;
@@ -55,7 +55,12 @@ export const handlers = [
   ),
 
   http.post("*/xrpc/com.atproto.server.createSession", async ({ request }) => {
-    const body = (await request.json()) as { identifier: string; password: string };
+    const body = (await request.json()) as {
+      identifier: string;
+      password: string;
+      totpCode?: string;
+      authFactorToken?: string;
+    };
     const found = ACCOUNTS.find((a) => a.handle === body.identifier);
     if (!found) {
       return HttpResponse.json({ error: "AccountNotFound" }, { status: 401 });
@@ -66,6 +71,21 @@ export const handlers = [
         { status: 401 },
       );
     }
+
+    // TOTP accounts demand the code in `totpCode`; an emailed code arrives in
+    // `authFactorToken`. Sending the wrong field must not let anyone in.
+    if (found.handle === TOTP_ACCOUNT) {
+      if (body.totpCode !== "123456") {
+        return HttpResponse.json(
+          {
+            error: "AuthFactorTokenRequired",
+            message: "Enter an authenticator or recovery code in totpCode.",
+          },
+          { status: 401 },
+        );
+      }
+    }
+
     return HttpResponse.json(session(found));
   }),
 

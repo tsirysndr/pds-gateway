@@ -4,9 +4,38 @@ import userEvent from "@testing-library/user-event";
 import { LoginScreen } from "./LoginScreen";
 import { renderApp } from "../test/render";
 import { pdsUrlAtom, sessionAtom } from "../atoms/store";
-import { BOB } from "../mocks/fixtures";
+import { BOB, CARA } from "../mocks/fixtures";
 
 describe("signing in", () => {
+  it("prefills the handle an OAuth client already knows", async () => {
+    // Mid-flow, the client sends login_hint. Making the user retype their
+    // handle there is the thing this avoids.
+    window.history.replaceState(
+      {},
+      "",
+      `/account/login?login_hint=${encodeURIComponent(BOB.handle)}`,
+    );
+    renderApp(<LoginScreen />);
+
+    expect(await screen.findByLabelText("Handle")).toHaveValue(BOB.handle);
+
+    // And the server is detected from it without any typing.
+    expect(
+      await screen.findByText(/Signing in to/i, {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("ignores an email as a hint, since it names no server", async () => {
+    window.history.replaceState({}, "", "/account/login?login_hint=alice%40example.com");
+    renderApp(<LoginScreen />);
+
+    expect(await screen.findByLabelText("Handle")).toHaveValue("");
+
+    window.history.replaceState({}, "", "/");
+  });
+
   it("asks for a handle and refuses an email", async () => {
     const user = userEvent.setup();
     renderApp(<LoginScreen />);
@@ -42,6 +71,29 @@ describe("signing in", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     await waitFor(() => expect(store.get(sessionAtom)?.handle).toBe(BOB.handle), {
+      timeout: 5000,
+    });
+  });
+
+  it("sends an authenticator code in the field the server asks for", async () => {
+    const user = userEvent.setup();
+    const { store } = renderApp(<LoginScreen />);
+
+    await user.type(screen.getByLabelText("Handle"), CARA.handle);
+    await screen.findByText(/Signing in to/i, {}, { timeout: 3000 });
+    await user.type(screen.getByLabelText("Password"), "correct-horse");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // The server asked for a second factor, so the field appears.
+    const code = await screen.findByLabelText("Code", {}, { timeout: 5000 });
+    expect(screen.getByText(/From your authenticator app/i)).toBeInTheDocument();
+
+    await user.type(code, "123456");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // Only succeeds if the code went in `totpCode`; `authFactorToken` is the
+    // emailed-code field and the server ignores it here.
+    await waitFor(() => expect(store.get(sessionAtom)?.handle).toBe(CARA.handle), {
       timeout: 5000,
     });
   });

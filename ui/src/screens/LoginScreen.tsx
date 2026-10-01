@@ -5,20 +5,53 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { useAtom, useSetAtom } from "jotai";
-import { IconServer2 } from "@tabler/icons-react";
+import { IconServer2, IconShieldLock } from "@tabler/icons-react";
+import { Field } from "../components/Field";
 import { AuthCard } from "../components/AuthCard";
 import { Alert, ErrorAlert } from "../components/Alert";
-import { Field } from "../components/Field";
+import { HandleField } from "../components/HandleField";
+import { PasswordField } from "../components/PasswordField";
 import { PdsSelect } from "../components/PdsSelect";
 import { lastHandleAtom, pdsUrlAtom, sessionAtom } from "../atoms/store";
 import { detectPds } from "../lib/resolve";
 import { preferOrigin } from "../lib/servers";
-import { createClient } from "../lib/xrpc";
+import { createClient, XrpcError } from "../lib/xrpc";
 import type { Session } from "../lib/types";
 
 /// Sign-in is by handle only. A handle resolves to the PDS that hosts it, which
 /// is what makes routing possible — an email address cannot be resolved, so it
 /// would leave the app guessing which server to ask.
+/// Both factors are reported as `AuthFactorTokenRequired`; only the status and
+/// wording say which. An authenticator is a 401 naming `totpCode`, an emailed
+/// code a 400.
+function factorKind(error: unknown): "totp" | "email" | null {
+  if (!(error instanceof XrpcError)) return null;
+  if (error.error === "InvalidAuthFactorToken") return "totp";
+  if (error.error !== "AuthFactorTokenRequired") return null;
+  return /totp/i.test(error.message) || error.status === 401 ? "totp" : "email";
+}
+
+function factorField(kind: "totp" | "email" | null, value: string | undefined) {
+  if (!value) return {};
+  return kind === "totp" ? { totpCode: value } : { authFactorToken: value };
+}
+
+/// The handle to start with.
+///
+/// An OAuth client that already knows who is signing in sends `login_hint`, and
+/// the PDS's own form honours it; the console must too, or the user retypes
+/// their handle in the middle of a flow. A hint also beats the remembered
+/// handle, because it is about this sign-in rather than the last one.
+function hintedHandle(search: string, remembered: string): string {
+  const params = new URLSearchParams(search);
+  for (const key of ["login_hint", "handle", "identifier"]) {
+    const value = params.get(key)?.trim();
+    // An email cannot be resolved to a server, so it is not a usable hint here.
+    if (value && !value.includes("@")) return value;
+  }
+  return remembered;
+}
+
 const schema = z.object({
   handle: z
     .string()
@@ -40,11 +73,18 @@ export function LoginScreen() {
   const [lastHandle, setLastHandle] = useAtom(lastHandleAtom);
   const setSession = useSetAtom(sessionAtom);
   const [detected, setDetected] = useState<string | null>(null);
-  const [needsFactor, setNeedsFactor] = useState(false);
+  // Which second factor the server asked for. They are different fields: an
+  // authenticator code goes in `totpCode`, an emailed code in
+  // `authFactorToken`. Sending the wrong one never succeeds.
+  const [needsFactor, setNeedsFactor] = useState<"totp" | "email" | null>(null);
 
   const form = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { handle: lastHandle, password: "", authFactorToken: "" },
+    defaultValues: {
+      handle: hintedHandle(window.location.search, lastHandle),
+      password: "",
+      authFactorToken: "",
+    },
   });
 
   const handle = form.watch("handle");
@@ -92,7 +132,7 @@ export function LoginScreen() {
       return createClient(base).post<Session>("com.atproto.server.createSession", {
         identifier: values.handle,
         password: values.password,
-        ...(values.authFactorToken ? { authFactorToken: values.authFactorToken } : {}),
+        ...factorField(needsFactor, values.authFactorToken),
       });
     },
     onSuccess: (session, values) => {
@@ -100,8 +140,7 @@ export function LoginScreen() {
       setSession(session);
     },
     onError: (error) => {
-      const name = (error as { error?: string }).error;
-      if (name === "AuthFactorTokenRequired") setNeedsFactor(true);
+      setNeedsFactor(factorKind(error) ?? needsFactor);
     },
   });
 
@@ -119,12 +158,10 @@ export function LoginScreen() {
         className="flex flex-col gap-4"
         onSubmit={form.handleSubmit((values) => signIn.mutate(values))}
       >
-        <Field
+        <HandleField
           label="Handle"
           placeholder="alice.rocksky.social"
           autoComplete="username"
-          autoCapitalize="none"
-          spellCheck="false"
           error={form.formState.errors.handle}
           {...form.register("handle")}
         />
@@ -141,9 +178,8 @@ export function LoginScreen() {
           </div>
         )}
 
-        <Field
+        <PasswordField
           label="Password"
-          type="password"
           autoComplete="current-password"
           error={form.formState.errors.password}
           {...form.register("password")}
@@ -151,9 +187,17 @@ export function LoginScreen() {
 
         {needsFactor && (
           <Field
-            label="Confirmation code"
-            description="Sent to the email on your account."
+            label="Code"
+            description={
+              needsFactor === "totp"
+                ? "From your authenticator app."
+                : "Sent to the email on your account."
+            }
+            inputMode={needsFactor === "totp" ? "numeric" : undefined}
             autoComplete="one-time-code"
+            startContent={
+              <IconShieldLock size={16} className="shrink-0 text-default-400" aria-hidden />
+            }
             error={form.formState.errors.authFactorToken}
             {...form.register("authFactorToken")}
           />

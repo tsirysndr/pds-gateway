@@ -14,6 +14,16 @@ export const BOB = {
   service: RADXA,
 };
 
+/// An account protected by an authenticator, so the plain sign-in path stays
+/// testable on its own.
+export const CARA = {
+  did: "did:plc:cara234567cara234567car",
+  handle: "cara.rocksky.social",
+  service: RADXA,
+};
+
+export const TOTP_ACCOUNT = CARA.handle;
+
 export function didDocument(account: { did: string; handle: string; service: string }) {
   return {
     id: account.did,
