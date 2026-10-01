@@ -3,9 +3,11 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  // Served from the mount point the Rust server embeds it at; relative asset
-  // URLs keep it working wherever that is.
-  base: "./",
+  // Assets are served from the gateway's own namespace, not from wherever the
+  // page is mounted: the console answers paths like /account/login, and a
+  // relative URL there would resolve to /account/assets/... and 404. This
+  // prefix also cannot collide with anything the PDS serves.
+  base: "/_gateway/console/",
   plugins: [react(), tailwindcss()],
   build: {
     outDir: "dist",

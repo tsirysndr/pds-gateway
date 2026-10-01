@@ -14,18 +14,34 @@ import { SecurityScreen } from "./screens/SecurityScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { SignupScreen } from "./screens/SignupScreen";
 
+/// The screen the server mounted this page at.
+///
+/// The console answers some of the PDS's own paths, so arriving at
+/// `/account/login` must show sign-in without a hash. The hash still wins once
+/// the user navigates, which keeps routing to one mechanism.
+function routeFromPath(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (path.endsWith("/account/login")) return "login";
+  if (path.endsWith("/account/signup")) return "signup";
+  if (path === "/") return "root";
+  return null;
+}
+
 /// Hash routing, so the app works wherever the server mounts it without
 /// needing a history rewrite rule.
 function useHashRoute(fallback: string) {
-  const [route, setRoute] = useState(
-    () => window.location.hash.replace(/^#\/?/, "") || fallback,
-  );
+  const initial = () =>
+    window.location.hash.replace(/^#\/?/, "") ||
+    routeFromPath(window.location.pathname) ||
+    fallback;
+
+  const [route, setRoute] = useState(initial);
 
   useEffect(() => {
-    const onChange = () =>
-      setRoute(window.location.hash.replace(/^#\/?/, "") || fallback);
+    const onChange = () => setRoute(initial());
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fallback]);
 
   const navigate = (next: string) => {
@@ -66,13 +82,17 @@ export function App({ client }: { client: QueryClient }) {
   const signedIn = useAtomValue(isSignedInAtom);
   const [route, navigate] = useHashRoute(signedIn ? "account" : "login");
 
+  // "root" means the page was served at "/": show the account when there is a
+  // session, and sign-in otherwise.
+  const resolved = route === "root" ? (signedIn ? "account" : "login") : route;
+
   return (
     <HeroUIProvider>
       <QueryClientProvider client={client}>
-        {signedIn ? (
-          <SignedInRoute route={route} onNavigate={navigate} />
-        ) : route === "signup" ? (
+        {resolved === "signup" ? (
           <SignupScreen />
+        ) : signedIn ? (
+          <SignedInRoute route={resolved} onNavigate={navigate} />
         ) : (
           <LoginScreen />
         )}
