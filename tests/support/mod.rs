@@ -176,6 +176,14 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
         .route("/metrics", get(pds_metrics))
         .route("/oauth/par", post(pds_par))
         .route("/.well-known/did.json", get(pds_did_json))
+        // Neighbours of the paths the console answers. The tests assert these
+        // still reach the PDS.
+        .route("/account/login", get(pds_owned))
+        .route("/account/signup", get(pds_owned))
+        .route("/account/sessions", get(pds_owned))
+        .route("/account/security", get(pds_owned))
+        .route("/oauth/authorize", get(pds_owned))
+        .route("/assets/account.js", get(pds_owned))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -399,6 +407,12 @@ async fn describe_server(State(state): State<StubState>, headers: HeaderMap) -> 
         "contact": {"email": "admin@rocksky.social"},
     }))
     .into_response()
+}
+
+/// Anything the PDS owns: a test asserts the gateway did not take it over.
+async fn pds_owned(State(state): State<StubState>, headers: HeaderMap) -> Response {
+    record(&state, &headers, "pds-owned");
+    Json(json!({"servedBy": state.name, "owner": "pds"})).into_response()
 }
 
 async fn pds_home(State(state): State<StubState>, headers: HeaderMap) -> Response {

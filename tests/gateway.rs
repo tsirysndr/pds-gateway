@@ -649,11 +649,11 @@ async fn the_firehose_can_be_turned_off() {
 async fn passes_through_the_routes_the_pds_owns() {
     let h = fleet().await;
 
-    // The account frontend, health and metrics must not be shadowed: the gateway
+    // Health, metrics and the PDS's own pages must not be shadowed: the gateway
     // fronts a hostname the PDS already serves.
-    let (status, headers, body) = h.get_with("/", &[]).await;
+    let (status, headers, body) = h.get_with("/account/sessions", &[]).await;
     assert_eq!(status, 200);
-    assert!(String::from_utf8_lossy(&body).contains("primary account page"));
+    assert!(String::from_utf8_lossy(&body).contains("\"owner\":\"pds\""));
     assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
 
     let (status, _, body) = h.get("/health").await;
@@ -716,11 +716,13 @@ async fn a_token_sends_passthrough_to_the_accounts_own_node() {
         .unwrap();
 
     let auth = format!("Bearer {}", token(&bob, None));
-    let (status, headers, body) = h.get_with("/", &[("authorization", &auth)]).await;
+    let (status, headers, body) = h
+        .get_with("/account/sessions", &[("authorization", &auth)])
+        .await;
 
     assert_eq!(status, 200);
     assert_eq!(Harness::node_header(&headers).as_deref(), Some("radxa"));
-    assert!(String::from_utf8_lossy(&body).contains("radxa account page"));
+    assert!(String::from_utf8_lossy(&body).contains("\"servedBy\":\"radxa\""));
 }
 
 #[tokio::test]
@@ -842,7 +844,7 @@ async fn every_forwarded_request_carries_its_origin() {
             json!({"handle": "origin.rocksky.social", "email": "o@e.com", "password": "correct-horse"}),
         )
         .await;
-    let _ = h.get("/").await;
+    let _ = h.get("/account/sessions").await;
 
     let mut paths = std::collections::HashSet::new();
     for node in h.nodes.values() {
@@ -868,7 +870,7 @@ async fn every_forwarded_request_carries_its_origin() {
         "/xrpc/com.atproto.server.describeServer",
         "/xrpc/com.atproto.sync.listRepos",
         "/xrpc/com.atproto.server.createSession",
-        "/",
+        "pds-owned",
     ] {
         assert!(paths.contains(expected), "{expected} was never forwarded; saw {paths:?}");
     }
@@ -938,14 +940,18 @@ async fn the_console_is_served_from_its_own_mount() {
 }
 
 #[tokio::test]
-async fn the_console_does_not_shadow_the_pds_frontend() {
+async fn the_console_answers_the_root_page() {
     let h = fleet().await;
 
-    // `/` still belongs to the PDS; the console lives at its own mount.
+    // The console is deliberately in front here: its sign-in resolves the
+    // handle to the account's own node, which the PDS's page cannot do.
     let (status, headers, body) = h.get_with("/", &[]).await;
     assert_eq!(status, 200);
-    assert!(String::from_utf8_lossy(&body).contains("primary account page"));
-    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
+    assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
+    assert!(Harness::node_header(&headers).is_none());
+
+    // The PDS's own home page is still reachable where it is not shadowed; see
+    // taking_over_sign_in_leaves_every_other_path_with_the_pds.
 }
 
 #[tokio::test]
@@ -1020,4 +1026,101 @@ async fn the_console_can_be_disabled() {
     // With the console off, the mount falls through to the PDS like any path.
     let (status, _, _) = h.get_with("/console", &[]).await;
     assert_eq!(status, 404, "the stub PDS has no /console");
+}
+
+
+#[tokio::test]
+async fn the_console_answers_sign_in_and_sign_up() {
+    let h = fleet().await;
+
+    for path in ["/", "/account/login", "/account/signup"] {
+        let (status, headers, body) = h.get_with(path, &[]).await;
+        assert_eq!(status, 200, "{path}");
+        assert!(
+            String::from_utf8_lossy(&body).contains("<div id=\"root\">"),
+            "{path} should be the console, not the PDS page"
+        );
+        // Served by the gateway itself, so no node header.
+        assert!(Harness::node_header(&headers).is_none(), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn taking_over_sign_in_leaves_every_other_path_with_the_pds() {
+    let h = fleet().await;
+
+    // Neighbours of the paths the console answers, and the PDS's own assets.
+    for path in [
+        "/account/sessions",
+        "/account/security",
+        "/oauth/authorize",
+        "/assets/account.js",
+    ] {
+        let (status, headers, body) = h.get_with(path, &[]).await;
+        assert_eq!(status, 200, "{path}");
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("\"owner\":\"pds\""), "{path} was taken over: {text}");
+        assert_eq!(
+            Harness::node_header(&headers).as_deref(),
+            Some("primary"),
+            "{path} should have been forwarded"
+        );
+    }
+}
+
+#[tokio::test]
+async fn console_assets_load_from_any_mounted_path() {
+    let h = fleet().await;
+
+    // The page is served at several paths, so its assets cannot be relative.
+    let (_, _, body) = h.get_with("/account/login", &[]).await;
+    let html = String::from_utf8_lossy(&body).to_string();
+    let asset = html
+        .split('"')
+        .find(|part| part.starts_with("/_gateway/console/assets/") && part.ends_with(".js"))
+        .expect("the page should reference an absolute asset url");
+
+    let (status, headers, _) = h.get_with(asset, &[]).await;
+    assert_eq!(status, 200, "{asset} did not load");
+    assert!(
+        headers
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("javascript")
+    );
+}
+
+#[tokio::test]
+async fn a_missing_console_asset_is_not_served_as_the_page() {
+    let h = fleet().await;
+
+    // A 200 of HTML here would make a broken bundle look like a working one.
+    let (status, _, _) = h
+        .get_with("/_gateway/console/assets/does-not-exist.js", &[])
+        .await;
+    assert_eq!(status, 404);
+}
+
+#[tokio::test]
+async fn the_screens_the_console_answers_are_configurable() {
+    let primary = start_node("primary", vec![hosted("alice.rocksky.social", "alice@example.com")]).await;
+    let h = harness(vec![primary], |config| {
+        // Hand sign-in back to the PDS.
+        config.ui.screens = vec!["/console-only".to_owned()];
+    })
+    .await;
+
+    let (status, headers, body) = h.get_with("/account/login", &[]).await;
+    assert_eq!(status, 200);
+    assert!(
+        String::from_utf8_lossy(&body).contains("\"owner\":\"pds\""),
+        "with sign-in handed back, the PDS must answer it"
+    );
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
+
+    let (status, _, body) = h.get_with("/console-only", &[]).await;
+    assert_eq!(status, 200);
+    assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
 }
