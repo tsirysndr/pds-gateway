@@ -13,19 +13,18 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAtomValue } from "jotai";
 import { IconShieldCheck, IconShieldOff } from "@tabler/icons-react";
-import { pdsUrlAtom } from "../atoms/store";
 import { Alert, ErrorAlert } from "../components/Alert";
 import { Field } from "../components/Field";
+import { useClient } from "../lib/api";
 import {
   beginTotp,
   confirmTotp,
   disableTotp,
   fetchTotpStatus,
+  isUnsupported,
   regenerateRecovery,
-  UnsupportedError,
-  type TotpStatus,
+  type Enrollment,
 } from "../lib/security";
 
 const passwordOnly = z.object({ password: z.string().min(1, "Enter your password") });
@@ -35,14 +34,14 @@ const codeOnly = z.object({
 const passwordAndCode = passwordOnly.extend(codeOnly.shape);
 
 export function SecurityScreen() {
-  const base = useAtomValue(pdsUrlAtom);
+  const client = useClient();
   const queries = useQueryClient();
-  const [enrolling, setEnrolling] = useState<TotpStatus | null>(null);
+  const [enrolling, setEnrolling] = useState<Enrollment | null>(null);
 
   const status = useQuery({
-    queryKey: ["totp", base],
+    queryKey: ["totp", client.base],
     retry: false,
-    queryFn: () => fetchTotpStatus(base),
+    queryFn: () => fetchTotpStatus(client),
   });
 
   const state = enrolling?.state ?? status.data?.state ?? "disabled";
@@ -53,14 +52,14 @@ export function SecurityScreen() {
         ? { Icon: IconShieldOff, label: "Finish setup", color: "warning" as const }
         : { Icon: IconShieldOff, label: "Off", color: "default" as const };
 
-  const refresh = () => queries.invalidateQueries({ queryKey: ["totp", base] });
+  const refresh = () => queries.invalidateQueries({ queryKey: ["totp", client.base] });
 
   const begin = useMutation({
-    mutationFn: (password: string) => beginTotp(base, password),
+    mutationFn: (password: string) => beginTotp(client, password),
     onSuccess: (next) => setEnrolling(next),
   });
   const confirm = useMutation({
-    mutationFn: (code: string) => confirmTotp(base, code),
+    mutationFn: (code: string) => confirmTotp(client, code),
     onSuccess: () => {
       setEnrolling(null);
       refresh();
@@ -68,7 +67,7 @@ export function SecurityScreen() {
   });
   const disable = useMutation({
     mutationFn: (values: z.infer<typeof passwordAndCode>) =>
-      disableTotp(base, values.password, values.code),
+      disableTotp(client, values.password, values.code),
     onSuccess: () => {
       setEnrolling(null);
       refresh();
@@ -76,10 +75,10 @@ export function SecurityScreen() {
   });
   const recovery = useMutation({
     mutationFn: (values: z.infer<typeof passwordAndCode>) =>
-      regenerateRecovery(base, values.password, values.code),
+      regenerateRecovery(client, values.password, values.code),
   });
 
-  if (status.data?.state === "unsupported" || status.error instanceof UnsupportedError) {
+  if (status.data?.state === "unsupported" || isUnsupported(status.error)) {
     return (
       <Card shadow="none" className="border border-default-200">
         <CardHeader>
@@ -87,9 +86,9 @@ export function SecurityScreen() {
         </CardHeader>
         <CardBody>
           <Alert tone="info">
-            This server does not expose two-factor settings. Two-factor is a
-            server feature, not part of the atproto lexicon, so it is only
-            available where the PDS implements it.
+            This server does not implement <code>social.rocksky.auth</code>.
+            Two-factor is a server feature rather than part of the atproto
+            lexicon, so it is only available where the PDS offers it.
           </Alert>
         </CardBody>
       </Card>
