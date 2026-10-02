@@ -138,19 +138,16 @@ export function LoginScreen() {
       })) as PublicKeyCredential | null;
       if (!credential) throw new Error(t("login.passkeyNone"));
 
+      // A user-verified passkey is already two factors — the device, and the
+      // PIN or biometric that unlocked it — so no code is sent on top.
       return finishPasskeyLogin(client, {
         requestId: started.requestId,
         credential: assertionJson(credential),
-        ...factorField(needsFactor, values.authFactorToken),
       });
     },
     onSuccess: (session, values) => {
       setLastHandle(values.handle);
       setSession(session);
-    },
-    onError: (error) => {
-      // An account with a factor is still asked for one.
-      setNeedsFactor(factorKind(error) ?? needsFactor);
     },
   });
 
