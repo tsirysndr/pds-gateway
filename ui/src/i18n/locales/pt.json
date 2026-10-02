@@ -169,5 +169,26 @@
   },
   "errors": {
     "generic": "Algo correu mal. Tente de novo."
+  },
+  "forgot": {
+    "link": "Esqueceu a palavra-passe?",
+    "title": "Reponha a sua palavra-passe",
+    "subtitle": "O seu servidor envia-lhe uma ligação de reposição por e-mail.",
+    "email": "E-mail da conta",
+    "submit": "Enviar-me uma ligação de reposição",
+    "backToSignIn": "Voltar ao início de sessão",
+    "sent": "Se esse endereço tiver uma conta no seu servidor, uma ligação está a caminho. A ligação abre a página de reposição do seu servidor.",
+    "haveCode": "Já tenho o código"
+  },
+  "reset": {
+    "title": "Reponha a sua palavra-passe",
+    "subtitle": "Cole o código do e-mail e escolha uma nova palavra-passe.",
+    "code": "Código de reposição",
+    "newPassword": "Nova palavra-passe",
+    "confirmPassword": "Confirmar a nova palavra-passe",
+    "submit": "Definir a nova palavra-passe",
+    "done": "A sua palavra-passe foi alterada. Inicie sessão com a nova.",
+    "serverLabel": "Servidor (do seu identificador no passo anterior)",
+    "errorCode": "Escreva o código do e-mail"
   }
 }

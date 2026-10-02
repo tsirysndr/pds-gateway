@@ -8,6 +8,8 @@ import { Layout } from "./components/Layout";
 import { AccountScreen } from "./screens/AccountScreen";
 import { AppPasswordsScreen } from "./screens/AppPasswordsScreen";
 import { InvitesScreen } from "./screens/InvitesScreen";
+import { ForgotScreen } from "./screens/ForgotScreen";
+import { ResetScreen } from "./screens/ResetScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { PasskeysScreen } from "./screens/PasskeysScreen";
 import { RepoScreen } from "./screens/RepoScreen";
@@ -101,7 +103,11 @@ export function App({ client }: { client: QueryClient }) {
   return (
     <HeroUIProvider>
       <QueryClientProvider client={client}>
-        {resolved === "signup" ? (
+        {resolved === "reset" ? (
+          <ResetScreen />
+        ) : resolved === "forgot" ? (
+          <ForgotScreen />
+        ) : resolved === "signup" ? (
           <SignupScreen />
         ) : signedIn ? (
           <SignedInRoute route={resolved} onNavigate={navigate} />

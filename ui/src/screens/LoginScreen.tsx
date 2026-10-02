@@ -193,6 +193,8 @@ export function LoginScreen() {
       footer={
         <>
           {t("login.noAccount")} <Link href="#/signup" size="sm">{t("login.createOne")}</Link>
+          {" · "}
+          <Link href="#/forgot" size="sm">{t("forgot.link")}</Link>
         </>
       }
     >

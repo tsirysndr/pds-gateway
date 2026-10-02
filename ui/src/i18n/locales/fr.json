@@ -169,5 +169,26 @@
   },
   "errors": {
     "generic": "Quelque chose s'est mal passé. Réessayez."
+  },
+  "forgot": {
+    "link": "Mot de passe oublié ?",
+    "title": "Réinitialisez votre mot de passe",
+    "subtitle": "Votre serveur vous envoie un lien de réinitialisation par e-mail.",
+    "email": "E-mail du compte",
+    "submit": "M'envoyer un lien de réinitialisation",
+    "backToSignIn": "Retour à la connexion",
+    "sent": "Si cette adresse a un compte sur votre serveur, un lien de réinitialisation est en route. Le lien ouvre la page de réinitialisation de votre serveur.",
+    "haveCode": "J'ai déjà le code"
+  },
+  "reset": {
+    "title": "Réinitialisez votre mot de passe",
+    "subtitle": "Collez le code reçu par e-mail et choisissez un nouveau mot de passe.",
+    "code": "Code de réinitialisation",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le nouveau mot de passe",
+    "submit": "Définir le nouveau mot de passe",
+    "done": "Votre mot de passe est changé. Connectez-vous avec le nouveau.",
+    "serverLabel": "Serveur (depuis votre identifiant à l'étape précédente)",
+    "errorCode": "Saisissez le code reçu par e-mail"
   }
 }

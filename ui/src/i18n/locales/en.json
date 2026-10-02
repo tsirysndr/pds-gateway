@@ -169,5 +169,26 @@
   },
   "errors": {
     "generic": "Something went wrong. Try again."
+  },
+  "forgot": {
+    "link": "Forgot password?",
+    "title": "Reset your password",
+    "subtitle": "Your server emails you a reset link.",
+    "email": "Account email",
+    "submit": "Email me a reset link",
+    "backToSignIn": "Back to sign in",
+    "sent": "If that address has an account on your server, a reset link is on its way. The link opens your server's reset page.",
+    "haveCode": "I already have the code"
+  },
+  "reset": {
+    "title": "Reset your password",
+    "subtitle": "Paste the code from the email and choose a new password.",
+    "code": "Reset code",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "submit": "Set the new password",
+    "done": "Your password is changed. Sign in with the new one.",
+    "serverLabel": "Server (from your handle on the previous step)",
+    "errorCode": "Enter the code from the email"
   }
 }

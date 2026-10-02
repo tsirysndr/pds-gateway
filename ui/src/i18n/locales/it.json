@@ -169,5 +169,26 @@
   },
   "errors": {
     "generic": "Qualcosa è andato storto. Riprova."
+  },
+  "forgot": {
+    "link": "Password dimenticata?",
+    "title": "Reimposta la tua password",
+    "subtitle": "Il tuo server ti invia un link di reimpostazione via e-mail.",
+    "email": "E-mail dell'account",
+    "submit": "Inviami un link di reimpostazione",
+    "backToSignIn": "Torna all'accesso",
+    "sent": "Se quell'indirizzo ha un account sul tuo server, un link è in arrivo. Il link apre la pagina di reimpostazione del tuo server.",
+    "haveCode": "Ho già il codice"
+  },
+  "reset": {
+    "title": "Reimposta la tua password",
+    "subtitle": "Incolla il codice dall'e-mail e scegli una nuova password.",
+    "code": "Codice di reimpostazione",
+    "newPassword": "Nuova password",
+    "confirmPassword": "Conferma la nuova password",
+    "submit": "Imposta la nuova password",
+    "done": "La tua password è cambiata. Accedi con quella nuova.",
+    "serverLabel": "Server (dal tuo identificativo del passo precedente)",
+    "errorCode": "Scrivi il codice dall'e-mail"
   }
 }

@@ -169,5 +169,26 @@
   },
   "errors": {
     "generic": "Algo salió mal. Inténtalo de nuevo."
+  },
+  "forgot": {
+    "link": "¿Olvidaste tu contraseña?",
+    "title": "Restablece tu contraseña",
+    "subtitle": "Tu servidor te envía un enlace de restablecimiento por correo.",
+    "email": "Correo de la cuenta",
+    "submit": "Enviarme un enlace de restablecimiento",
+    "backToSignIn": "Volver al inicio de sesión",
+    "sent": "Si esa dirección tiene una cuenta en tu servidor, un enlace está en camino. El enlace abre la página de restablecimiento de tu servidor.",
+    "haveCode": "Ya tengo el código"
+  },
+  "reset": {
+    "title": "Restablece tu contraseña",
+    "subtitle": "Pega el código del correo y elige una nueva contraseña.",
+    "code": "Código de restablecimiento",
+    "newPassword": "Nueva contraseña",
+    "confirmPassword": "Confirmar la nueva contraseña",
+    "submit": "Establecer la nueva contraseña",
+    "done": "Tu contraseña ha cambiado. Inicia sesión con la nueva.",
+    "serverLabel": "Servidor (desde tu identificador del paso anterior)",
+    "errorCode": "Escribe el código del correo"
   }
 }
