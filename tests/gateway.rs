@@ -1080,6 +1080,25 @@ async fn the_console_answers_sign_in_and_sign_up() {
 }
 
 #[tokio::test]
+async fn posting_the_sign_in_form_reaches_the_pds() {
+    let h = fleet().await;
+
+    // The PDS's own login page posts back to /account/login. The console owns
+    // only a browser's GET of that path; a POST must pass through, not die on
+    // the console's route with a 405.
+    let (status, headers, body) = h
+        .post_raw(
+            "/account/login",
+            &[("accept", "text/html"), ("content-type", "application/x-www-form-urlencoded")],
+            b"identifier=alice&password=secret".to_vec(),
+        )
+        .await;
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("\"owner\":\"pds\""));
+    assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
+}
+
+#[tokio::test]
 async fn an_oauth_ceremony_keeps_its_sign_in_with_the_pds() {
     let h = fleet().await;
 

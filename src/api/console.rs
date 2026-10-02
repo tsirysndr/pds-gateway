@@ -7,7 +7,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
-use axum::routing::get;
+use axum::routing::{any, get};
 use rust_embed::Embed;
 use serde_json::json;
 
@@ -41,7 +41,11 @@ pub fn router(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     // handle to the account's own node, which the PDS's own page cannot do.
     for path in &state.config.ui.screens {
         if path != &index {
-            router = router.route(path, get(serve_screen));
+            // Any method: the console answers only a browser's GET, and
+            // everything else must still reach the PDS. A GET-only route would
+            // have axum answer other methods itself with 405, which breaks the
+            // PDS's own login form posting back to the same path.
+            router = router.route(path, any(serve_screen));
         }
     }
 
@@ -62,7 +66,7 @@ async fn serve_screen(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    if wants_html(&headers) && !oauth_ceremony(&uri) {
+    if method == Method::GET && wants_html(&headers) && !oauth_ceremony(&uri) {
         return serve_index().await;
     }
 

@@ -178,7 +178,7 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
         .route("/.well-known/did.json", get(pds_did_json))
         // Neighbours of the paths the console answers. The tests assert these
         // still reach the PDS.
-        .route("/account/login", get(pds_owned))
+        .route("/account/login", get(pds_owned).post(pds_owned))
         .route("/account/signup", get(pds_owned))
         .route("/account/sessions", get(pds_owned))
         .route("/account/security", get(pds_owned))
@@ -590,6 +590,20 @@ impl Harness {
     pub async fn get(&self, uri: &str) -> (StatusCode, axum::http::HeaderMap, Value) {
         let (status, headers, body) = self.get_with(uri, &[]).await;
         (status, headers, parse(&body))
+    }
+
+    pub async fn post_raw(
+        &self,
+        uri: &str,
+        header_pairs: &[(&str, &str)],
+        body: Vec<u8>,
+    ) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+        let mut builder = axum::http::Request::builder().method("POST").uri(uri);
+        for (k, v) in header_pairs {
+            builder = builder.header(*k, *v);
+        }
+        self.send(builder.body(axum::body::Body::from(body)).unwrap())
+            .await
     }
 
     pub async fn get_with(
