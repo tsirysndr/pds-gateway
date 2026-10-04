@@ -27,6 +27,12 @@ pub struct Delegates {
 
 pub const HOP_HEADER: &str = "x-pdsgw-delegate-hop";
 
+/// atoll's name for the same marker. A node that does not see a hop header it
+/// recognises resolves the handle over the network, and for a handle in this
+/// namespace that leads through the TLS ask back to this gateway, which asks the
+/// node again: a loop that only each hop's timeout ends.
+pub const ATOLL_HOP_HEADER: &str = "atoll-delegate-hop";
+
 impl Delegates {
     pub fn new(config: DelegateConfig, http: reqwest::Client, nodes: Vec<NodeConfig>) -> Self {
         let claims = Cache::builder()
@@ -109,6 +115,7 @@ impl Delegates {
             .get(&url)
             .query(&[("handle", handle.as_str())])
             .header(HOP_HEADER, "1")
+            .header(ATOLL_HOP_HEADER, "1")
             .timeout(self.config.ask_timeout.get());
 
         let response = match request.send().await {
@@ -158,7 +165,7 @@ impl Drop for InFlight {
 /// Whether a delegate ask arriving with this header should be answered without
 /// fanning out again.
 pub fn is_hop(headers: &axum::http::HeaderMap) -> bool {
-    headers.contains_key(HOP_HEADER)
+    headers.contains_key(HOP_HEADER) || headers.contains_key(ATOLL_HOP_HEADER)
 }
 
 /// atoll accepts only these DID shapes from a delegate; matching it here keeps
@@ -308,5 +315,11 @@ mod tests {
         assert!(!is_hop(&headers));
         headers.insert(HOP_HEADER, "1".parse().unwrap());
         assert!(is_hop(&headers));
+
+        // atoll marks its own delegate asks with its own header name; the
+        // gateway must treat those as hops too.
+        let mut atoll = axum::http::HeaderMap::new();
+        atoll.insert(ATOLL_HOP_HEADER, "1".parse().unwrap());
+        assert!(is_hop(&atoll));
     }
 }
