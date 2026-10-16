@@ -4,6 +4,7 @@ import { ALICE, BOB, CARA, TOTP_ACCOUNT, didDocument, PLC, session } from "./fix
 const ACCOUNTS = [ALICE, BOB, CARA];
 
 export const handlers = [
+  http.get("*/xrpc/com.atproto.repo.getRecord", () => HttpResponse.json({ error: "RecordNotFound" }, { status: 404 })),
   http.get("*/xrpc/social.rocksky.auth.searchHandles", ({ request }) => {
     const query = new URL(request.url).searchParams.get("q") ?? "";
     return HttpResponse.json({ handles: ACCOUNTS.map((account) => account.handle).filter((handle) => query.length >= 2 && handle.startsWith(query)) });

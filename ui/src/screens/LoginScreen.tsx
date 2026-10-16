@@ -1,4 +1,4 @@
-import { HandleSuggestions } from "../components/HandleSuggestions";
+import { HandleAutocomplete } from "../components/HandleAutocomplete";
 import { useEffect, useState } from "react";
 import { Button, Divider, Link } from "@heroui/react";
 import { useForm } from "react-hook-form";
@@ -18,7 +18,6 @@ import {
 import { Field } from "../components/Field";
 import { AuthCard } from "../components/AuthCard";
 import { Alert, ErrorAlert } from "../components/Alert";
-import { HandleField } from "../components/HandleField";
 import { PasswordField } from "../components/PasswordField";
 import { PdsSelect } from "../components/PdsSelect";
 import { lastHandleAtom, pdsUrlAtom, sessionAtom } from "../atoms/store";
@@ -200,14 +199,14 @@ export function LoginScreen() {
         className="flex flex-col gap-4"
         onSubmit={form.handleSubmit((values) => signIn.mutate(values))}
       >
-        <HandleSuggestions id="login-handles" value={handle ?? ""} />
-        <HandleField
-          list="login-handles"
+        <HandleAutocomplete
+          value={form.watch("handle") ?? ""}
+          onValueChange={(value) => form.setValue("handle", value, { shouldDirty: true })}
           label={t("common.handle")}
           placeholder={t("login.handlePlaceholder")}
           autoComplete="username"
           error={form.formState.errors.handle}
-          {...form.register("handle")}
+          registration={form.register("handle")}
         />
 
         {detect.isPending && (
