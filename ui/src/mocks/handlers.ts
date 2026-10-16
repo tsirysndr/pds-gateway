@@ -4,6 +4,10 @@ import { ALICE, BOB, CARA, TOTP_ACCOUNT, didDocument, PLC, session } from "./fix
 const ACCOUNTS = [ALICE, BOB, CARA];
 
 export const handlers = [
+  http.get("*/xrpc/social.rocksky.auth.searchHandles", ({ request }) => {
+    const query = new URL(request.url).searchParams.get("q") ?? "";
+    return HttpResponse.json({ handles: ACCOUNTS.map((account) => account.handle).filter((handle) => query.length >= 2 && handle.startsWith(query)) });
+  }),
   // A browser preflights cross-origin requests, so the mocks answer those too;
   // without this, strict mode reports every preflight as unhandled.
   http.options("*", () =>

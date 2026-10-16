@@ -1,3 +1,4 @@
+import { HandleSuggestions } from "../components/HandleSuggestions";
 import { useEffect, useState } from "react";
 import { Button, Divider, Link } from "@heroui/react";
 import { useForm } from "react-hook-form";
@@ -199,7 +200,9 @@ export function LoginScreen() {
         className="flex flex-col gap-4"
         onSubmit={form.handleSubmit((values) => signIn.mutate(values))}
       >
+        <HandleSuggestions id="login-handles" value={handle ?? ""} />
         <HandleField
+          list="login-handles"
           label={t("common.handle")}
           placeholder={t("login.handlePlaceholder")}
           autoComplete="username"

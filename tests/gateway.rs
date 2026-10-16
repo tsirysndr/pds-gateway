@@ -1207,3 +1207,17 @@ async fn the_screens_the_console_answers_are_configurable() {
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
 }
+
+#[tokio::test]
+async fn handle_suggestions_merge_only_the_hosted_fleet() {
+    let primary = start_node("primary", vec![hosted("alice.rocksky.social", "alice@example.com")]).await;
+    let secondary = start_node("radxa", vec![hosted("albert.rocksky.social", "albert@example.com")]).await;
+    let h = harness(vec![primary, secondary], |_| {}).await;
+    let (status, _, body) = h.get("/xrpc/social.rocksky.auth.searchHandles?q=al").await;
+    assert_eq!(status, 200);
+    assert_eq!(body, json!({"handles": ["albert.rocksky.social", "alice.rocksky.social"]}));
+    h.nodes["radxa"].set_offline(true);
+    let (status, _, body) = h.get("/xrpc/social.rocksky.auth.searchHandles?q=al").await;
+    assert_eq!(status, 200);
+    assert_eq!(body, json!({"handles": ["alice.rocksky.social"]}));
+}

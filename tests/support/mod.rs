@@ -164,6 +164,7 @@ pub async fn start_node(name: &str, seed: Vec<Hosted>) -> StubNode {
         )
         .route("/xrpc/com.atproto.repo.getRecord", get(get_record))
         .route("/xrpc/com.atproto.sync.listRepos", get(list_repos))
+        .route("/xrpc/social.rocksky.auth.searchHandles", get(search_handles))
         .route(
             "/xrpc/com.atproto.server.describeServer",
             get(describe_server),
@@ -671,4 +672,23 @@ pub fn token(sub: &str, aud: Option<&str>) -> String {
         URL_SAFE_NO_PAD.encode(br#"{"alg":"HS256","typ":"at+jwt"}"#),
         URL_SAFE_NO_PAD.encode(claims.to_string())
     )
+}
+
+async fn search_handles(
+    State(state): State<StubState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if let Some(down) = offline(&state) {
+        return down;
+    }
+    let prefix = query.get("q").cloned().unwrap_or_default();
+    let handles: Vec<String> = state
+        .inner
+        .lock()
+        .accounts
+        .iter()
+        .filter(|account| account.handle.starts_with(&prefix))
+        .map(|account| account.handle.clone())
+        .collect();
+    Json(json!({"handles": handles})).into_response()
 }

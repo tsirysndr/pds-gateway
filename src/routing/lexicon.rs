@@ -78,7 +78,8 @@ pub fn classify(nsid: &str) -> Handling {
         "com.atproto.server.createAccount" => Handling::Local,
 
         // --- merged across the fleet --------------------------------------
-        "com.atproto.sync.listRepos"
+        "social.rocksky.auth.searchHandles"
+        | "com.atproto.sync.listRepos"
         | "com.atproto.sync.listReposByCollection"
         | "com.atproto.admin.searchAccounts" => Handling::Fanout,
 
@@ -172,6 +173,7 @@ mod tests {
     #[test]
     fn fleet_wide_listings_are_merged() {
         for nsid in [
+            "social.rocksky.auth.searchHandles",
             "com.atproto.sync.listRepos",
             "com.atproto.sync.listReposByCollection",
             "com.atproto.admin.searchAccounts",

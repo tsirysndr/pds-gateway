@@ -424,6 +424,19 @@ async fn fanout(
         )));
     }
 
+    if nsid == "social.rocksky.auth.searchHandles" {
+        let mut handles: Vec<String> = arrays
+            .remove("handles")
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_owned))
+            .collect();
+        handles.sort();
+        handles.dedup();
+        handles.truncate(10);
+        return Ok(Json(json!({"handles": handles})).into_response());
+    }
+
     for (key, items) in arrays {
         merged.insert(key, Value::Array(items));
     }
