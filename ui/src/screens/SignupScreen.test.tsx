@@ -5,8 +5,8 @@ import { SignupScreen } from "./SignupScreen";
 import { renderApp } from "../test/render";
 import { sessionAtom } from "../atoms/store";
 
-async function fill(user: ReturnType<typeof userEvent.setup>, password: string, confirm: string) {
-  await user.type(await screen.findByLabelText("Handle"), "newbie");
+async function fill(user: ReturnType<typeof userEvent.setup>, password: string, confirm: string, handle = "newbie") {
+  await user.type(await screen.findByLabelText("Handle"), handle);
   await user.type(screen.getByLabelText("Email"), "newbie@example.com");
   await user.type(screen.getByLabelText("Password"), password);
   await user.type(screen.getByLabelText("Confirm password"), confirm);
@@ -26,14 +26,15 @@ describe("creating an account", () => {
     expect(store.get(sessionAtom)).toBeNull();
   });
 
-  it("creates the account when both match", async () => {
+  it.each(["newbie", "newbie.rocksky.social", "newbie.other.test"])("creates an account with handle %s", async (handle) => {
     const user = userEvent.setup();
     const { store } = renderApp(<SignupScreen />);
 
-    await fill(user, "correct-horse", "correct-horse");
+    await fill(user, "correct-horse", "correct-horse", handle);
+    if (handle.includes(".")) expect(screen.queryByText(".rocksky.social")).not.toBeInTheDocument();
 
     await waitFor(
-      () => expect(store.get(sessionAtom)?.handle).toBeDefined(),
+      () => expect(store.get(sessionAtom)?.handle).toBe(handle.includes(".") ? handle : `${handle}.rocksky.social`),
       { timeout: 5000 },
     );
   });

@@ -17,7 +17,7 @@ export function renderApp(ui: ReactElement) {
     client,
     ...render(
       <JotaiProvider store={store}>
-        <HeroUIProvider>
+        <HeroUIProvider disableAnimation>
           <QueryClientProvider client={client}>{ui}</QueryClientProvider>
         </HeroUIProvider>
       </JotaiProvider>,

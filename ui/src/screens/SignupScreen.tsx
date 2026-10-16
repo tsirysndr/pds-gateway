@@ -57,6 +57,8 @@ export function SignupScreen() {
     },
   });
 
+  const handle = form.watch("handle").trim();
+
   const create = useMutation({
     mutationFn: (values: Values) =>
       createClient(pds).post<Session>("com.atproto.server.createAccount", {
@@ -90,7 +92,7 @@ export function SignupScreen() {
           label={t("common.handle")}
           placeholder={t("signup.handlePlaceholder")}
           endContent={
-            domain && <span className="text-small text-default-400">{domain}</span>
+            domain && !handle.includes(".") && <span className="shrink-0 text-small text-default-400">{domain}</span>
           }
           error={form.formState.errors.handle}
           {...form.register("handle")}
