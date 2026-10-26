@@ -6,8 +6,8 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use axum::{Json, Router};
 use axum::routing::{any, get};
+use axum::{Json, Router};
 use rust_embed::Embed;
 use serde_json::json;
 
@@ -19,7 +19,11 @@ struct Assets;
 
 pub fn router(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     let mount = state.config.ui.mount.clone();
-    let index = if mount == "/" { "/".to_owned() } else { mount.clone() };
+    let index = if mount == "/" {
+        "/".to_owned()
+    } else {
+        mount.clone()
+    };
 
     let mut router = Router::new()
         // Assets live under the gateway's own namespace, not under the mount:

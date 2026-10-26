@@ -819,7 +819,6 @@ async fn a_failing_node_keeps_its_cursor_for_the_next_page() {
     );
 }
 
-
 #[tokio::test]
 async fn every_forwarded_request_carries_its_origin() {
     let h = fleet().await;
@@ -856,7 +855,8 @@ async fn every_forwarded_request_carries_its_origin() {
             );
             // Each node is addressed by its own public host.
             assert!(
-                host.as_deref().is_some_and(|h| h.ends_with("rocksky.social")),
+                host.as_deref()
+                    .is_some_and(|h| h.ends_with("rocksky.social")),
                 "{path} reached the node with host {host:?}"
             );
             paths.insert(path);
@@ -872,10 +872,12 @@ async fn every_forwarded_request_carries_its_origin() {
         "/xrpc/com.atproto.server.createSession",
         "pds-owned",
     ] {
-        assert!(paths.contains(expected), "{expected} was never forwarded; saw {paths:?}");
+        assert!(
+            paths.contains(expected),
+            "{expected} was never forwarded; saw {paths:?}"
+        );
     }
 }
-
 
 #[tokio::test]
 async fn a_relayed_claim_does_not_make_the_relay_the_host() {
@@ -913,9 +915,11 @@ async fn a_relayed_claim_does_not_make_the_relay_the_host() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(account.node, "radxa", "the registry must record the real host");
+    assert_eq!(
+        account.node, "radxa",
+        "the registry must record the real host"
+    );
 }
-
 
 #[tokio::test]
 async fn the_console_is_served_from_its_own_mount() {
@@ -966,7 +970,10 @@ async fn a_non_browser_still_gets_the_pds_home_page() {
 
         assert_eq!(status, 200, "accept={accept:?}");
         assert!(text.contains("primary pds"), "accept={accept:?}: {text}");
-        assert!(!text.contains("<div id="), "accept={accept:?} got the console");
+        assert!(
+            !text.contains("<div id="),
+            "accept={accept:?} got the console"
+        );
         assert_eq!(
             Harness::node_header(&headers_out).as_deref(),
             Some("primary"),
@@ -1025,7 +1032,10 @@ async fn a_node_behind_the_gateway_is_published_as_the_gateway() {
     assert_eq!(status, 200);
 
     let servers = body["servers"].as_array().unwrap();
-    let local = servers.iter().find(|s| s["name"] == json!("primary")).unwrap();
+    let local = servers
+        .iter()
+        .find(|s| s["name"] == json!("primary"))
+        .unwrap();
 
     // Choosing it sends the browser to the gateway, which forwards to that node.
     assert_eq!(local["url"], json!("https://rocksky.social"));
@@ -1062,7 +1072,6 @@ async fn the_console_can_be_disabled() {
     assert_eq!(status, 404, "the stub PDS has no /console");
 }
 
-
 #[tokio::test]
 async fn the_console_answers_sign_in_and_sign_up() {
     let h = fleet().await;
@@ -1089,7 +1098,10 @@ async fn posting_the_sign_in_form_reaches_the_pds() {
     let (status, headers, body) = h
         .post_raw(
             "/account/login",
-            &[("accept", "text/html"), ("content-type", "application/x-www-form-urlencoded")],
+            &[
+                ("accept", "text/html"),
+                ("content-type", "application/x-www-form-urlencoded"),
+            ],
             b"identifier=alice&password=secret".to_vec(),
         )
         .await;
@@ -1118,7 +1130,10 @@ async fn an_oauth_ceremony_keeps_its_sign_in_with_the_pds() {
 
     // Anything else in the query keeps the console, hint included.
     let (status, _, body) = h
-        .get_with("/account/login?login_hint=alice.example", &[("accept", "text/html")])
+        .get_with(
+            "/account/login?login_hint=alice.example",
+            &[("accept", "text/html")],
+        )
         .await;
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
@@ -1138,7 +1153,10 @@ async fn taking_over_sign_in_leaves_every_other_path_with_the_pds() {
         let (status, headers, body) = h.get_with(path, &[]).await;
         assert_eq!(status, 200, "{path}");
         let text = String::from_utf8_lossy(&body);
-        assert!(text.contains("\"owner\":\"pds\""), "{path} was taken over: {text}");
+        assert!(
+            text.contains("\"owner\":\"pds\""),
+            "{path} was taken over: {text}"
+        );
         assert_eq!(
             Harness::node_header(&headers).as_deref(),
             Some("primary"),
@@ -1186,7 +1204,11 @@ async fn a_missing_console_asset_is_not_served_as_the_page() {
 
 #[tokio::test]
 async fn the_screens_the_console_answers_are_configurable() {
-    let primary = start_node("primary", vec![hosted("alice.rocksky.social", "alice@example.com")]).await;
+    let primary = start_node(
+        "primary",
+        vec![hosted("alice.rocksky.social", "alice@example.com")],
+    )
+    .await;
     let h = harness(vec![primary], |config| {
         // Hand sign-in back to the PDS.
         config.ui.screens = vec!["/console-only".to_owned()];
@@ -1203,19 +1225,32 @@ async fn the_screens_the_console_answers_are_configurable() {
     );
     assert_eq!(Harness::node_header(&headers).as_deref(), Some("primary"));
 
-    let (status, _, body) = h.get_with("/console-only", &[("accept", "text/html")]).await;
+    let (status, _, body) = h
+        .get_with("/console-only", &[("accept", "text/html")])
+        .await;
     assert_eq!(status, 200);
     assert!(String::from_utf8_lossy(&body).contains("<div id=\"root\">"));
 }
 
 #[tokio::test]
 async fn handle_suggestions_merge_only_the_hosted_fleet() {
-    let primary = start_node("primary", vec![hosted("alice.rocksky.social", "alice@example.com")]).await;
-    let secondary = start_node("radxa", vec![hosted("albert.rocksky.social", "albert@example.com")]).await;
+    let primary = start_node(
+        "primary",
+        vec![hosted("alice.rocksky.social", "alice@example.com")],
+    )
+    .await;
+    let secondary = start_node(
+        "radxa",
+        vec![hosted("albert.rocksky.social", "albert@example.com")],
+    )
+    .await;
     let h = harness(vec![primary, secondary], |_| {}).await;
     let (status, _, body) = h.get("/xrpc/social.rocksky.auth.searchHandles?q=al").await;
     assert_eq!(status, 200);
-    assert_eq!(body, json!({"handles": ["albert.rocksky.social", "alice.rocksky.social"]}));
+    assert_eq!(
+        body,
+        json!({"handles": ["albert.rocksky.social", "alice.rocksky.social"]})
+    );
     h.nodes["radxa"].set_offline(true);
     let (status, _, body) = h.get("/xrpc/social.rocksky.auth.searchHandles?q=al").await;
     assert_eq!(status, 200);
