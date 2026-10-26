@@ -1,6 +1,6 @@
 # Dagger CI
 
-The pipeline lives in `.dagger/ci/src/dagger_main.gleam` and uses the Gleam SDK vendored in `.dagger/sdk/`. GitHub Actions supplies the checkout and Dagger CLI; containers supply the build tools. No host language toolchain is required.
+The thin entrypoint `.dagger/ci/src/dagger_main.gleam` starts the module. Pipeline registration lives in `src/project_ci.gleam`, with checks in `src/*_checks.gleam` modules and shared container helpers kept separately. The Gleam SDK is vendored in `.dagger/sdk/`. GitHub Actions supplies the checkout and Dagger CLI; containers supply the build tools.
 
 Use Dagger **v1.0.0-beta.21** with a supported container engine:
 
@@ -22,9 +22,13 @@ For an engine-free syntax/type check against the vendored API snapshot:
 
 ```sh
 cd .dagger/ci
-cp -R ../sdk/gleam dagger_sdk
+mkdir -p dagger_sdk
+cp -R ../sdk/gleam/. dagger_sdk/
 gleam format --check src
 gleam check
+gleam run -m content_check
 ```
 
 The Rust check builds the UI before compiling its embedded assets, then runs formatting, Clippy, and tests. The frontend check also builds Storybook.
+
+Generated-file checks compare relative file paths and content-only hashes, ignoring filesystem ownership and permissions. Failures list the changed, added, or removed files. Engine-free regression tests cover these cases.
