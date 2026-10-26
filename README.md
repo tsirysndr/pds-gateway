@@ -669,3 +669,7 @@ that account's own node; otherwise it goes to the default node.
 ## License
 
 MIT
+
+## Continuous integration
+
+Build and test checks run through the Gleam Dagger module. See [Dagger CI](.dagger/README.md) for commands, services, caching, and pipeline development.
