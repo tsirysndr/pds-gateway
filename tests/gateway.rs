@@ -1303,3 +1303,26 @@ async fn public_signup_skips_unprotected_nodes_during_a_rollout() {
     assert!(old.created().is_empty());
     assert_eq!(protected.created().len(), 1);
 }
+
+#[tokio::test]
+async fn hiding_a_node_from_the_dropdown_preserves_existing_account_routing() {
+    let primary = start_node("primary", vec![]).await;
+    let hidden = start_node(
+        "raspberrypi3",
+        vec![hosted("existing.rocksky.social", "existing@example.com")],
+    )
+    .await;
+    let h = harness(vec![primary, hidden], |config| {
+        config.ui.hidden_nodes = vec!["raspberrypi3".into()];
+    })
+    .await;
+    let (status, _, body) = h.get("/_gateway/pds").await;
+    assert_eq!(status, 200);
+    assert_eq!(body["servers"].as_array().unwrap().len(), 1);
+    assert_eq!(body["servers"][0]["name"], json!("primary"));
+    let (status, _, body) = h
+        .get("/xrpc/com.atproto.identity.resolveHandle?handle=existing.rocksky.social")
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["did"], json!(stub_did("existing.rocksky.social")));
+}

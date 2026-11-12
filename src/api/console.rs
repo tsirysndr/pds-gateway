@@ -165,6 +165,7 @@ async fn servers(State(state): State<Arc<AppState>>) -> Response {
         .config
         .nodes
         .iter()
+        .filter(|node| !state.config.ui.hidden_nodes.contains(&node.name))
         .map(|node| {
             let host = node.effective_public_host();
             let url = if own_authority.as_deref() == Some(host.as_str()) {

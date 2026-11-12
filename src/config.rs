@@ -411,6 +411,8 @@ pub struct UiConfig {
     /// sign-in resolves the handle to the account's own node, which the PDS's
     /// own page cannot do, so taking these over is the point of having it.
     pub screens: Vec<String>,
+    /// Hide nodes from the console dropdown without changing account routing.
+    pub hidden_nodes: Vec<String>,
 }
 
 impl Default for UiConfig {
@@ -418,6 +420,7 @@ impl Default for UiConfig {
         Self {
             enabled: true,
             mount: "/console".to_owned(),
+            hidden_nodes: Vec::new(),
             screens: vec![
                 "/".to_owned(),
                 "/account/login".to_owned(),
@@ -784,6 +787,9 @@ impl Config {
         parse_env_duration("GATEWAY_DELEGATE_CACHE_TTL", &mut self.delegate.cache_ttl)?;
         parse_env_bool("GATEWAY_DELEGATE_TLS_CHECK", &mut self.delegate.tls_check)?;
 
+        if let Some(nodes) = parse_env_list("GATEWAY_UI_HIDDEN_NODES") {
+            self.ui.hidden_nodes = nodes;
+        }
         parse_env_bool("GATEWAY_UI_ENABLED", &mut self.ui.enabled)?;
         parse_env("GATEWAY_UI_MOUNT", &mut self.ui.mount)?;
         if let Some(screens) = parse_env_list("GATEWAY_UI_SCREENS") {

@@ -694,3 +694,9 @@ alone cannot secure an unprotected node's direct registration endpoint.
 Export an ignored `.env.turnstile` before starting the gateway when using local
 configuration (`set -a; . ./.env.turnstile; set +a`). The gateway file needs only
 `GATEWAY_TURNSTILE_SITE_KEY`; it never needs a Turnstile secret.
+
+To temporarily hide a node from the console's server dropdown, set
+`GATEWAY_UI_HIDDEN_NODES=raspberrypi3` (comma-separated node names), or configure
+`[ui].hidden_nodes` in TOML. This only changes discovery for the UI; existing
+account routing and node health monitoring continue normally. Unset it to restore
+the node to the dropdown.
