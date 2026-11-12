@@ -25,6 +25,7 @@ pub fn rust(
   |> container.with_directory("/src/ui/dist", ui)
   |> container.with_workdir("/src")
   |> ci.commands([
+    ["rustup", "component", "add", "rustfmt", "clippy"],
     ["cargo", "fmt", "--all", "--", "--check"],
     [
       "cargo",

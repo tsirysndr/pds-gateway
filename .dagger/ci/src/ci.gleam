@@ -33,7 +33,7 @@ pub fn clean(source: types.Directory) -> types.Directory {
       ".elixir_ls",
       ".cpcache",
     ],
-    source,
+    source |> directory.without_file(".env.turnstile"),
     fn(source, path) { directory.without_directory(source, path) },
   )
 }
