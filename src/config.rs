@@ -134,6 +134,8 @@ pub struct GatewayConfig {
     pub default_node: Option<String>,
     pub reservation_ttl: DurationSetting,
     pub allow_signups: bool,
+    /// Require the selected PDS to verify signup tokens with this widget.
+    pub turnstile_site_key: Option<String>,
     /// Try `createSession` on every node when the identifier is an email, which
     /// the gateway cannot resolve to a DID on its own.
     pub broadcast_login: bool,
@@ -205,6 +207,7 @@ impl Default for GatewayConfig {
             default_node: None,
             reservation_ttl: DurationSetting::secs(600),
             allow_signups: true,
+            turnstile_site_key: None,
             broadcast_login: true,
             honor_proxy_header: true,
         }
@@ -630,6 +633,10 @@ impl Config {
         parse_env_opt("GATEWAY_DEFAULT_NODE", &mut self.gateway.default_node)?;
         parse_env_duration("GATEWAY_RESERVATION_TTL", &mut self.gateway.reservation_ttl)?;
         parse_env_bool("GATEWAY_ALLOW_SIGNUPS", &mut self.gateway.allow_signups)?;
+        parse_env_opt(
+            "GATEWAY_TURNSTILE_SITE_KEY",
+            &mut self.gateway.turnstile_site_key,
+        )?;
         parse_env_bool("GATEWAY_BROADCAST_LOGIN", &mut self.gateway.broadcast_login)?;
         parse_env_bool(
             "GATEWAY_HONOR_PROXY_HEADER",
@@ -850,6 +857,16 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if self
+            .gateway
+            .turnstile_site_key
+            .as_ref()
+            .is_some_and(|key| key.trim().is_empty())
+        {
+            return Err(ConfigError::Invalid(
+                "turnstile_site_key must not be blank".to_owned(),
+            ));
+        }
         if self.nodes.is_empty() {
             return Err(ConfigError::Invalid(
                 "no upstream PDS nodes configured; add [[nodes]] entries or set GATEWAY_NODES"

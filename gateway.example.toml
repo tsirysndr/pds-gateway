@@ -10,6 +10,8 @@ trust_forwarded_headers = true
 shutdown_grace = "20s"
 
 [gateway]
+# Enable after every signup node enforces this shared Turnstile widget.
+# turnstile_site_key = "your-public-site-key"
 # Domains the gateway owns. It allocates handles under these and is the
 # authority that stops two nodes issuing the same one.
 handle_domains = ["rocksky.social"]

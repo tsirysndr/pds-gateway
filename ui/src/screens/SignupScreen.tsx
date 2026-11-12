@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { Turnstile } from "../components/Turnstile";
 import { Button, Divider, Link } from "@heroui/react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -37,6 +39,8 @@ type Values = z.infer<ReturnType<typeof makeSchema>>;
 export function SignupScreen() {
   const { t } = useTranslation();
   const pds = useAtomValue(pdsUrlAtom);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [verificationAttempt, setVerificationAttempt] = useState(0);
   const setSession = useSetAtom(sessionAtom);
 
   const { data: server } = useQuery({
@@ -69,9 +73,11 @@ export function SignupScreen() {
           : `${values.handle}${domain}`,
         email: values.email,
         password: values.password,
+        ...(server?.turnstile ? { turnstileToken } : {}),
         ...(values.inviteCode ? { inviteCode: values.inviteCode } : {}),
       }),
     onSuccess: (session) => setSession(session),
+    onSettled: () => { setTurnstileToken(""); setVerificationAttempt((value) => value + 1); },
   });
 
   return (
@@ -124,9 +130,11 @@ export function SignupScreen() {
           />
         )}
 
+        {server?.turnstile && <Turnstile key={`${pds}:${server.turnstile.siteKey}:${verificationAttempt}`} siteKey={server.turnstile.siteKey} onToken={setTurnstileToken} />}
+
         {create.error && <ErrorAlert error={create.error} />}
 
-        <Button type="submit" color="primary" isLoading={create.isPending} fullWidth>
+        <Button type="submit" color="primary" isLoading={create.isPending} isDisabled={!server || Boolean(server.turnstile && !turnstileToken)} fullWidth>
           {t("signup.title")}
         </Button>
       </form>

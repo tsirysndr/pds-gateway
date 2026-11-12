@@ -30,6 +30,7 @@ pub struct NodeInner {
     pub accounts: Vec<Hosted>,
     pub created: Vec<Value>,
     pub offline: bool,
+    pub turnstile: Option<Value>,
     /// Handles this node answers for but does not host, as a PDS acting as a
     /// delegate does when it relays its own delegates' answers.
     pub relays: Vec<Hosted>,
@@ -410,6 +411,7 @@ async fn describe_server(State(state): State<StubState>, headers: HeaderMap) -> 
         "availableUserDomains": [".example.invalid"],
         "inviteCodeRequired": false,
         "blobUploadLimit": 5242880,
+        "turnstile": state.inner.lock().turnstile.clone(),
         "contact": {"email": "admin@rocksky.social"},
     }))
     .into_response()

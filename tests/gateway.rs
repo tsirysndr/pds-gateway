@@ -1256,3 +1256,50 @@ async fn handle_suggestions_merge_only_the_hosted_fleet() {
     assert_eq!(status, 200);
     assert_eq!(body, json!({"handles": ["alice.rocksky.social"]}));
 }
+
+#[tokio::test]
+async fn turnstile_requires_a_token_and_protected_node_then_forwards_once() {
+    let node = start_node("primary", vec![]).await;
+    let h = harness(vec![node.clone()], |config| {
+        config.gateway.turnstile_site_key = Some("site".into());
+    })
+    .await;
+    let path = "/xrpc/com.atproto.server.createAccount";
+    let body = json!({"handle":"human.rocksky.social", "email":"human@example.com", "password":"correct-horse"});
+    let (status, _, _) = h.post(path, body.clone()).await;
+    assert_eq!(status, 403);
+    assert!(node.created().is_empty());
+    let mut verified = body;
+    verified["turnstileToken"] = json!("one-use-token");
+    let (status, _, _) = h.post(path, verified.clone()).await;
+    assert_eq!(status, 503);
+    assert!(node.created().is_empty());
+    node.inner.lock().turnstile = Some(json!({"siteKey":"different", "action":"signup"}));
+    let (status, _, _) = h.post(path, verified.clone()).await;
+    assert_eq!(status, 503);
+    node.inner.lock().turnstile = Some(json!({"siteKey":"site", "action":"signup"}));
+    let (status, _, response) = h.post(path, verified).await;
+    assert_eq!(status, 200, "{response}");
+    assert_eq!(node.created().len(), 1);
+    assert_eq!(node.created()[0]["turnstileToken"], json!("one-use-token"));
+    let (_, _, description) = h.get("/xrpc/com.atproto.server.describeServer").await;
+    assert_eq!(description["turnstile"]["siteKey"], json!("site"));
+}
+
+#[tokio::test]
+async fn public_signup_skips_unprotected_nodes_during_a_rollout() {
+    let old = start_node("old", vec![]).await;
+    let protected = start_node("protected", vec![]).await;
+    protected.inner.lock().turnstile = Some(json!({"siteKey":"site", "action":"signup"}));
+    let h = harness(vec![old.clone(), protected.clone()], |config| {
+        config.gateway.turnstile_site_key = Some("site".into());
+    })
+    .await;
+    let (status, _, body) = h.post("/xrpc/com.atproto.server.createAccount", json!({
+        "handle":"visitor.rocksky.social", "email":"visitor@example.com", "password":"correct-horse",
+        "turnstileToken":"one-use-token"
+    })).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(old.created().is_empty());
+    assert_eq!(protected.created().len(), 1);
+}

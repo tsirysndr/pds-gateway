@@ -393,7 +393,10 @@ impl Router {
     }
 
     /// Picks a node for a new account.
-    pub async fn place(&self) -> Result<String> {
+    pub async fn place_excluding(
+        &self,
+        excluded: &std::collections::BTreeSet<String>,
+    ) -> Result<String> {
         use crate::config::Placement;
 
         let counts: std::collections::HashMap<String, u64> =
@@ -403,7 +406,7 @@ impl Router {
             .config
             .nodes
             .iter()
-            .filter(|n| n.accepts_signups)
+            .filter(|n| n.accepts_signups && !excluded.contains(&n.name))
             .filter(|n| self.fleet.is_up(&n.name))
             .filter(|n| {
                 n.max_accounts

@@ -9,6 +9,7 @@ export type Session = {
 };
 
 export type ServerDescription = {
+  turnstile?: { siteKey: string; action: "signup" } | null;
   did?: string;
   availableUserDomains?: string[];
   inviteCodeRequired?: boolean;

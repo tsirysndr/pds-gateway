@@ -146,6 +146,17 @@ async fn create_account(
     let payload: Value = serde_json::from_slice(&bytes)
         .map_err(|e| GatewayError::InvalidRequest(format!("body is not valid JSON: {e}")))?;
 
+    if state.config.gateway.turnstile_site_key.is_some()
+        && !payload
+            .get("turnstileToken")
+            .and_then(Value::as_str)
+            .is_some_and(|token| !token.is_empty() && token.len() <= 2048)
+    {
+        return Err(GatewayError::Forbidden(
+            "complete signup verification first".to_owned(),
+        ));
+    }
+
     let requested = payload
         .get("handle")
         .and_then(|v| v.as_str())
@@ -179,7 +190,43 @@ async fn create_account(
         return Err(GatewayError::HandleTaken(handle.to_string()));
     }
 
-    let node = state.router.place().await?;
+    let mut excluded = std::collections::BTreeSet::new();
+    let node = loop {
+        let node = state.router.place_excluding(&excluded).await?;
+        if let Some(key) = &state.config.gateway.turnstile_site_key {
+            // Only the PDS redeems the token. Skip unprotected/misconfigured
+            // nodes so a gradual rollout stays public without weakening checks.
+            let policy = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                state.forwarder.forward_buffered(
+                    &node,
+                    Method::GET,
+                    "com.atproto.server.describeServer",
+                    "",
+                    &HeaderMap::new(),
+                    None,
+                ),
+            )
+            .await;
+            let protected = match policy {
+                Ok(Ok(policy)) if policy.status.is_success() => {
+                    policy.json::<Value>().is_some_and(|body| {
+                        body.pointer("/turnstile/siteKey").and_then(Value::as_str)
+                            == Some(key.as_str())
+                            && body.pointer("/turnstile/action").and_then(Value::as_str)
+                                == Some("signup")
+                    })
+                }
+                _ => false,
+            };
+            if !protected {
+                tracing::warn!(node = %node, "skipping node without matching signup verification policy");
+                excluded.insert(node);
+                continue;
+            }
+        }
+        break node;
+    };
     let owner = reservation_owner(&handle, &payload);
     let ttl = state.config.gateway.reservation_ttl.get();
 

@@ -1,3 +1,6 @@
 /target
 /ui/node_modules
 /ui/storybook-static
+
+# Private Turnstile credentials.
+/.env.turnstile

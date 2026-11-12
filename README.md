@@ -673,3 +673,24 @@ MIT
 ## Continuous integration
 
 Build and test checks run through the Gleam Dagger module. See [Dagger CI](.dagger/README.md) for commands, services, caching, and pipeline development.
+
+### Turnstile on public signup
+
+Set `GATEWAY_TURNSTILE_SITE_KEY` (or `[gateway].turnstile_site_key` in TOML) to
+the shared Cloudflare widget's public site key. Public signup stays enabled;
+there is no invite-code bypass. Keep the Turnstile secret on the PDS nodes.
+
+Configure **every signup node** to enforce Turnstile with this same widget,
+action `signup`, and an allowlist containing the gateway and direct node signup
+page hostnames. Register those hostnames in Cloudflare's widget settings too.
+The console renders the challenge, sends `turnstileToken`, and refreshes it after
+an unsuccessful request. The gateway rejects missing tokens and refuses a
+node whose `describeServer.turnstile` policy does not match, trying the remaining
+healthy signup nodes instead. It forwards
+the token unchanged; the selected PDS performs the sole Siteverify redemption
+before provisioning. This avoids consuming a token twice. Gateway validation
+alone cannot secure an unprotected node's direct registration endpoint.
+
+Export an ignored `.env.turnstile` before starting the gateway when using local
+configuration (`set -a; . ./.env.turnstile; set +a`). The gateway file needs only
+`GATEWAY_TURNSTILE_SITE_KEY`; it never needs a Turnstile secret.

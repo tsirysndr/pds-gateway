@@ -151,6 +151,12 @@ pub async fn describe_server(state: &Arc<AppState>) -> Response {
     }
     body.insert("availableUserDomains".to_owned(), json!(domains));
     body.entry("inviteCodeRequired").or_insert(json!(false));
+    if let Some(key) = &state.config.gateway.turnstile_site_key {
+        body.insert(
+            "turnstile".to_owned(),
+            json!({"siteKey": key, "action": "signup"}),
+        );
+    }
 
     Json(Value::Object(body)).into_response()
 }
